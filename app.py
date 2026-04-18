@@ -168,6 +168,47 @@ def generate_pdf(selected_year, total_prod, top_prod, total_reserves, avg_rp, av
 st.title("🛢️ African Oil Dashboard: Production + Prices")
 st.caption("📊 Static Data | Production: kbpd | Prices: USD/bbl | Reserves: Billion Barrels")
 
+# 📖 ABOUT THIS DASHBOARD SECTION
+with st.expander("📖 About This Dashboard - Purpose & Benefits", expanded=False):
+    st.markdown("""
+    ### 🎯 Purpose
+    This **African Oil Production & Analytics Dashboard** is an open-access, interactive research tool designed to advance evidence-based understanding of petroleum resource dynamics across the African continent.
+    
+    ### 🌐 Context: Why African Oil Matters
+    - **Global Significance**: Africa holds **8–10% of global proven oil reserves** and supplies critical volumes to global markets.
+    - **Development Challenges**: Many African producers face the "resource curse" paradox—abundant wealth coexisting with poverty and governance challenges.
+    - **Energy Transition**: As the world shifts to low-carbon systems, African producers must navigate declining demand and diversification imperatives.
+    - **Data Gap**: This dashboard addresses fragmented data through open, standardized, and interactive presentation.
+    
+    ### 🎓 Benefits for Academic Audiences
+    
+    **For Students:**
+    - ✅ Hands-on learning with real production trends
+    - ✅ Skill development in data visualization and statistical analysis
+    - ✅ Project inspiration for term papers and thesis work
+    
+    **For Researchers:**
+    - ✅ Rapid hypothesis testing across countries and time periods
+    - ✅ Methodological transparency with documented calculations
+    - ✅ Cross-disciplinary collaboration support
+    
+    **For Scholars:**
+    - ✅ Evidence-based advocacy and policy dialogue
+    - ✅ Longitudinal analysis of structural vs. cyclical trends
+    - ✅ Global comparative work and capacity building
+    
+    ### 📊 Key Features
+    - 🗺️ **Interactive Maps**: Production and reserves choropleths
+    - 📈 **Price Correlation**: Brent Crude price trends with statistical analysis
+    - ⏳ **R/P Ratios**: Reserves-to-production calculations for sustainability analysis
+    - 📥 **Export Tools**: Excel and PDF reports for academic work
+    - 🔄 **Live Data**: Yahoo Finance integration for current prices
+    
+    ### 🔓 Open Access Commitment
+    This dashboard is provided under principles of **open science** and **equitable knowledge access**—free to use, transparent methodology, and privacy-respecting.
+    """)
+    st.markdown("---")
+
 # Sidebar Filters
 st.sidebar.header("🔍 Dashboard Controls")
 min_year, max_year = int(prod_df["Year"].min()), int(prod_df["Year"].max())
@@ -359,4 +400,15 @@ st.plotly_chart(fig_bar, width="stretch")
 st.markdown("---")
 st.markdown("💡 *Brent Crude prices from Yahoo Finance. Correlation analysis helps identify market-driven production patterns.*")
 st.markdown("🔄 *When you receive your EIA API key, production data will switch to live mode.*")
+
+# 👤 CREDIT FOOTER
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #666; font-size: 14px; padding: 20px 0;'>
+    This web app was conceptualized and designed by <strong>Gerson Japhet Fumbuka</strong>, 
+    a DBA scholar at INTI International University and Colleges, Nilai, Malaysia.<br>
+    For any comments, please contact following email address: 
+    <a href='mailto:oilproductiondashboard@gmail.com'>oilproductiondashboard@gmail.com</a>
+</div>
+""", unsafe_allow_html=True)
 
