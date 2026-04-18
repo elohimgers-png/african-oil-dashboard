@@ -1,0 +1,10 @@
+streamlit
+pandas
+plotly
+numpy
+yfinance
+openpyxl
+fpdf
+statsmodels
+python-dotenv
+
