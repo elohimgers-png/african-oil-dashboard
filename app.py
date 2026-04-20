@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import io
 from fpdf import FPDF
 import yfinance as yf
-from statsmodels.tsa.arima.model import ARIMA
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -83,19 +82,22 @@ def load_prices():
         dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
         return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 65 + np.random.normal(0, 5)} for d in dates])
 
-def forecast_arima(df_country, steps=12):
-    df_country = df_country.sort_values("Date")
-    history = df_country["Production_kbpd"].values
-    try:
-        model = ARIMA(history, order=(1,1,1)).fit()
-        forecast = model.forecast(steps=steps)
-        future_dates = [df_country["Date"].max() + timedelta(days=30*i) for i in range(1, steps+1)]
-        fc_df = pd.DataFrame({"Date": future_dates, "Forecast_kbpd": forecast, "Type": "Forecast"})
-        hist_df = df_country[["Date", "Production_kbpd"]].rename(columns={"Production_kbpd": "Forecast_kbpd"})
-        hist_df["Type"] = "Historical"
-        return pd.concat([hist_df, fc_df])
-    except:
-        return None
+# Simple linear forecast using numpy (no statsmodels needed!)
+def forecast_simple(df_country, steps=12):
+    df_country = df_country.sort_values("Date").reset_index(drop=True)
+    x = np.arange(len(df_country))
+    y = df_country["Production_kbpd"].values
+    # Linear regression
+    coeffs = np.polyfit(x, y, 1)
+    poly = np.poly1d(coeffs)
+    # Forecast
+    future_x = np.arange(len(df_country), len(df_country) + steps)
+    forecast_vals = poly(future_x)
+    future_dates = [df_country["Date"].max() + timedelta(days=30*i) for i in range(1, steps+1)]
+    fc_df = pd.DataFrame({"Date": future_dates, "Forecast_kbpd": forecast_vals, "Type": "Forecast"})
+    hist_df = df_country[["Date", "Production_kbpd"]].rename(columns={"Production_kbpd": "Forecast_kbpd"})
+    hist_df["Type"] = "Historical"
+    return pd.concat([hist_df, fc_df])
 
 # --- APP ---
 st.title("🌍 Global Oil Analytics Dashboard v2")
@@ -103,7 +105,7 @@ st.caption("📊 Advanced Analytics | Forecasting | Multi-Region Support")
 
 st.sidebar.header("🔍 Controls")
 region = st.sidebar.selectbox("Select Region", list(REGIONS.keys()), index=0)
-show_fc = st.sidebar.checkbox("Show 12-Month Forecast (ARIMA)", value=True)
+show_fc = st.sidebar.checkbox("Show 12-Month Forecast", value=True)
 
 prod_df = load_production_data(region)
 price_df = load_prices()
@@ -136,17 +138,17 @@ if not prod_filt.empty:
 
 # Trend & Forecast
 st.subheader("📈 Production Trend & Forecast")
-tab1, tab2 = st.tabs(["Historical Trend", "ARIMA Forecast"])
+tab1, tab2 = st.tabs(["Historical Trend", "Simple Forecast"])
 with tab1:
     fig = px.line(prod_trend, x="Date", y="Production_kbpd", color="Country", markers=False)
     st.plotly_chart(fig, width="stretch")
 with tab2:
     if show_fc and len(selected)==1:
-        fc = forecast_arima(prod_df[prod_df["Country"]==selected[0]])
+        fc = forecast_simple(prod_df[prod_df["Country"]==selected[0]])
         if fc is not None:
             fig = px.line(fc, x="Date", y="Forecast_kbpd", color="Type", line_dash="Type", markers=True, title=f"Forecast for {selected[0]}")
             st.plotly_chart(fig, width="stretch")
-            st.info("💡 ARIMA(1,1,1) forecast based on historical trends")
+            st.info("💡 Linear trend forecast based on historical data")
     elif len(selected)!=1:
         st.warning("Select exactly ONE country for forecast")
     else:

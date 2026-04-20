@@ -5,6 +5,4 @@ numpy
 yfinance
 openpyxl
 fpdf
-statsmodels
-python-dotenv
 
