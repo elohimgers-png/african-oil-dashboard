@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -14,33 +12,18 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-st.set_page_config(
-    page_title="🌍 Global Oil Analytics Dashboard", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="🌍 Global Oil Analytics Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# --- THEME CONFIGURATION ---
+# --- THEME ---
 st.markdown("""
 <style>
-    .main {
-        background-color: #f5f7fa;
-    }
-    h1, h2, h3 {
-        color: #2c3e50;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
+    .main { background-color: #f8f9fa; }
+    h1, h2, h3 { color: #1a365d; font-family: 'Helvetica Neue', sans-serif; }
+    .stMetric { background-color: #ffffff; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATA GENERATION ENGINE ---
-
+# --- DATA ---
 REGIONS = {
     "Africa": [
         {"name": "Nigeria", "iso": "NGA", "base": 2000, "trend": -0.03},
@@ -73,195 +56,128 @@ REGIONS = {
 }
 
 @st.cache_data
-def load_global_production_data(selected_region):
-    countries = REGIONS.get(selected_region, REGIONS["Africa"])
-    
+def load_production_data(region):
+    countries = REGIONS.get(region, REGIONS["Africa"])
     dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
     records = []
-    
     for c in countries:
         for i, date in enumerate(dates):
-            trend_factor = (1 + c["trend"]) ** (i / 12)
+            trend = (1 + c["trend"]) ** (i / 12)
             seasonal = 1 + 0.05 * np.sin(2 * np.pi * date.month / 12)
             noise = np.random.normal(1, 0.02)
-            production = max(0, c["base"] * trend_factor * seasonal * noise)
-            
-            records.append({
-                "Date": date, 
-                "Year": date.year, 
-                "Month": date.month,
-                "ISO3": c["iso"], 
-                "Country": c["name"],
-                "Region": selected_region,
-                "Production_kbpd": round(production, 1)
-            })
+            prod = max(0, c["base"] * trend * seasonal * noise)
+            records.append({"Date": date, "Year": date.year, "Month": date.month, "ISO3": c["iso"], "Country": c["name"], "Region": region, "Production_kbpd": round(prod, 1)})
     return pd.DataFrame(records)
 
 @st.cache_data(ttl=86400)
-def load_brent_prices():
+def load_prices():
     try:
-        brent = yf.download("BZ=F", start="2018-01-01", end="2024-12-31", progress=False)
-        if brent.empty:
-            raise Exception("No data")
-        brent_monthly = brent["Close"].resample("MS").mean().reset_index()
-        brent_monthly.columns = ["Date", "Brent_Price_USD"]
-        brent_monthly["Year"] = brent_monthly["Date"].dt.year
-        brent_monthly["Month"] = brent_monthly["Date"].dt.month
-        return brent_monthly[["Date", "Year", "Month", "Brent_Price_USD"]].dropna()
+        df = yf.download("BZ=F", start="2018-01-01", end="2024-12-31", progress=False)
+        if df.empty: raise Exception()
+        df = df["Close"].resample("MS").mean().reset_index()
+        df.columns = ["Date", "Brent_Price_USD"]
+        df["Year"] = df["Date"].dt.year
+        df["Month"] = df["Date"].dt.month
+        return df[["Date", "Year", "Month", "Brent_Price_USD"]].dropna()
     except:
         dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
-        prices = [{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 65 + np.random.normal(0, 5)} for d in dates]
-        return pd.DataFrame(prices)
+        return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 65 + np.random.normal(0, 5)} for d in dates])
 
-# --- FORECASTING FUNCTION (ARIMA) ---
-
-def forecast_production_arima(df_country, steps=12):
+def forecast_arima(df_country, steps=12):
     df_country = df_country.sort_values("Date")
     history = df_country["Production_kbpd"].values
-    
     try:
-        model = ARIMA(history, order=(1, 1, 1))
-        model_fit = model.fit()
-        forecast = model_fit.forecast(steps=steps)
-        
-        last_date = df_country["Date"].max()
-        future_dates = [last_date + timedelta(days=30*i) for i in range(1, steps+1)]
-        
-        forecast_df = pd.DataFrame({
-            "Date": future_dates,
-            "Forecast_kbpd": forecast,
-            "Type": "Forecast"
-        })
-        
-        hist_df = df_country[["Date", "Production_kbpd"]].copy()
-        hist_df.rename(columns={"Production_kbpd": "Forecast_kbpd"}, inplace=True)
+        model = ARIMA(history, order=(1,1,1)).fit()
+        forecast = model.forecast(steps=steps)
+        future_dates = [df_country["Date"].max() + timedelta(days=30*i) for i in range(1, steps+1)]
+        fc_df = pd.DataFrame({"Date": future_dates, "Forecast_kbpd": forecast, "Type": "Forecast"})
+        hist_df = df_country[["Date", "Production_kbpd"]].rename(columns={"Production_kbpd": "Forecast_kbpd"})
         hist_df["Type"] = "Historical"
-        
-        return pd.concat([hist_df, forecast_df])
-    except Exception as e:
-        st.error(f"Forecasting error: {e}")
+        return pd.concat([hist_df, fc_df])
+    except:
         return None
 
-# --- MAIN APP ---
-
-st.title("🌍 Global Oil Analytics Dashboard")
+# --- APP ---
+st.title("🌍 Global Oil Analytics Dashboard v2")
 st.caption("📊 Advanced Analytics | Forecasting | Multi-Region Support")
 
-# Sidebar Controls
-st.sidebar.header("🔍 Global Controls")
-selected_region = st.sidebar.selectbox("Select Region", list(REGIONS.keys()), index=0)
-show_forecast = st.sidebar.checkbox("Show 12-Month Forecast (ARIMA)", value=True)
+st.sidebar.header("🔍 Controls")
+region = st.sidebar.selectbox("Select Region", list(REGIONS.keys()), index=0)
+show_fc = st.sidebar.checkbox("Show 12-Month Forecast (ARIMA)", value=True)
 
-# Load Data
-try:
-    prod_df = load_global_production_data(selected_region)
-    price_df = load_brent_prices()
-except Exception as e:
-    st.error(f"Error loading data: {e}")
-    st.stop()
-
-# Merge Price Data
+prod_df = load_production_data(region)
+price_df = load_prices()
 prod_with_price = prod_df.merge(price_df, on=["Date", "Year", "Month"], how="left")
 
-# Filter by Country
-all_countries = prod_df["Country"].unique()
-selected_countries = st.sidebar.multiselect("Select Countries", all_countries, default=all_countries[:3] if len(all_countries) >= 3 else all_countries)
+countries = prod_df["Country"].unique()
+selected = st.sidebar.multiselect("Select Countries", countries, default=countries[:3] if len(countries)>=3 else countries)
+if not selected:
+    st.warning("Select at least one country."); st.stop()
 
-if not selected_countries:
-    st.warning("Please select at least one country.")
-    st.stop()
+prod_filt = prod_df[prod_df["Country"].isin(selected)]
+prod_trend = prod_df[prod_df["Country"].isin(selected)].sort_values("Date")
 
-# Filter Dataframes
-prod_filt = prod_df[prod_df["Country"].isin(selected_countries)]
-prod_trend = prod_df[prod_df["Country"].isin(selected_countries)].sort_values("Date")
+# KPIs
+total = prod_filt["Production_kbpd"].sum()
+avg = total / 365 if total > 0 else 0
+top = prod_filt.loc[prod_filt["Production_kbpd"].idxmax(), "Country"] if not prod_filt.empty else "N/A"
+c1,c2,c3 = st.columns(3)
+c1.metric(f"Avg Daily ({region})", f"{avg:,.0f} kbpd")
+c2.metric("Top Producer", top)
+c3.metric("Countries", len(selected))
 
-# --- KPIs ---
-total_prod = prod_filt["Production_kbpd"].sum()
-avg_daily = total_prod / 365 if total_prod > 0 else 0
-top_country = prod_filt.loc[prod_filt["Production_kbpd"].idxmax(), "Country"] if not prod_filt.empty else "N/A"
-
-c1, c2, c3 = st.columns(3)
-c1.metric(f"Avg Daily Production ({selected_region})", f"{avg_daily:,.0f} kbpd")
-c2.metric("Top Producer", top_country)
-c3.metric("Active Countries", len(selected_countries))
-
-# --- VISUALIZATIONS ---
-
-st.subheader("🗺️ Regional Production Map")
+# Map
+st.subheader("🗺️ Production Map")
 if not prod_filt.empty:
-    map_data = prod_filt.groupby(["ISO3", "Country"])["Production_kbpd"].mean().reset_index()
-    fig_map = px.choropleth(map_data, locations="ISO3", color="Production_kbpd",
-                            hover_name="Country", color_continuous_scale="Viridis",
-                            title=f"Avg Monthly Production in {selected_region}")
-    fig_map.update_geos(center=dict(lat=0, lon=0), projection_type="natural earth")
-    st.plotly_chart(fig_map, width="stretch")
+    map_df = prod_filt.groupby(["ISO3","Country"])["Production_kbpd"].mean().reset_index()
+    fig = px.choropleth(map_df, locations="ISO3", color="Production_kbpd", hover_name="Country", color_continuous_scale="Viridis", title=f"Avg Production in {region}")
+    fig.update_geos(center=dict(lat=0,lon=0), projection_type="natural earth")
+    st.plotly_chart(fig, width="stretch")
 
+# Trend & Forecast
 st.subheader("📈 Production Trend & Forecast")
 tab1, tab2 = st.tabs(["Historical Trend", "ARIMA Forecast"])
-
 with tab1:
-    fig_line = px.line(prod_trend, x="Date", y="Production_kbpd", color="Country", markers=False)
-    fig_line.update_layout(xaxis_title="Month", yaxis_title="Production (kbpd)")
-    st.plotly_chart(fig_line, width="stretch")
-
+    fig = px.line(prod_trend, x="Date", y="Production_kbpd", color="Country", markers=False)
+    st.plotly_chart(fig, width="stretch")
 with tab2:
-    if show_forecast and len(selected_countries) == 1:
-        country_name = selected_countries[0]
-        df_country = prod_df[prod_df["Country"] == country_name]
-        forecast_result = forecast_production_arima(df_country)
-        
-        if forecast_result is not None:
-            fig_forecast = px.line(forecast_result, x="Date", y="Forecast_kbpd", color="Type",
-                                   line_dash="Type", markers=True,
-                                   title=f"12-Month Production Forecast for {country_name}")
-            fig_forecast.update_traces(line=dict(width=3))
-            st.plotly_chart(fig_forecast, width="stretch")
-            st.info("💡 *Forecast generated using ARIMA(1,1,1) model based on historical trends.*")
-    elif len(selected_countries) != 1:
-        st.warning("⚠️ Please select exactly **one** country to view the ARIMA forecast.")
+    if show_fc and len(selected)==1:
+        fc = forecast_arima(prod_df[prod_df["Country"]==selected[0]])
+        if fc is not None:
+            fig = px.line(fc, x="Date", y="Forecast_kbpd", color="Type", line_dash="Type", markers=True, title=f"Forecast for {selected[0]}")
+            st.plotly_chart(fig, width="stretch")
+            st.info("💡 ARIMA(1,1,1) forecast based on historical trends")
+    elif len(selected)!=1:
+        st.warning("Select exactly ONE country for forecast")
     else:
-        st.info("Enable 'Show 12-Month Forecast' in sidebar.")
+        st.info("Enable forecast in sidebar")
 
-# --- PRICE CORRELATION ---
+# Price Correlation
 st.subheader("💰 Brent Price Correlation")
 try:
-    corr_data = prod_with_price.groupby("Date")[["Production_kbpd", "Brent_Price_USD"]].sum().reset_index()
-    corr_coef = corr_data["Production_kbpd"].corr(corr_data["Brent_Price_USD"])
-
-    col_corr1, col_corr2 = st.columns([3, 1])
-    with col_corr1:
-        fig_dual = go.Figure()
-        fig_dual.add_trace(go.Scatter(x=corr_data["Date"], y=corr_data["Production_kbpd"],
-                                       name="Total Production", yaxis="y1", line=dict(color="#1f77b4")))
-        fig_dual.add_trace(go.Scatter(x=corr_data["Date"], y=corr_data["Brent_Price_USD"],
-                                       name="Brent Price", yaxis="y2", line=dict(color="#ff7f0e")))
-        fig_dual.update_layout(
-            title="Production vs Brent Price (Dual Axis)",
-            xaxis=dict(title="Month"),
-            yaxis=dict(title=dict(text="Production (kbpd)", font=dict(color="#1f77b4")), tickfont=dict(color="#1f77b4"), side="left"),
-            yaxis2=dict(title=dict(text="Price (USD/bbl)", font=dict(color="#ff7f0e")), tickfont=dict(color="#ff7f0e"), overlaying="y", side="right"),
-            legend=dict(x=0.1, y=1.1, orientation="h"),
-            hovermode="x unified"
-        )
-        st.plotly_chart(fig_dual, width="stretch")
-
-    with col_corr2:
-        st.metric("Correlation Coefficient", f"{corr_coef:.3f}")
-        if abs(corr_coef) > 0.7: st.success("Strong correlation")
-        elif abs(corr_coef) > 0.4: st.info("Moderate correlation")
-        else: st.warning("Weak correlation")
+    corr = prod_with_price.groupby("Date")[["Production_kbpd","Brent_Price_USD"]].sum().reset_index()
+    coef = corr["Production_kbpd"].corr(corr["Brent_Price_USD"])
+    col1,col2 = st.columns([3,1])
+    with col1:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=corr["Date"], y=corr["Production_kbpd"], name="Production", yaxis="y1", line=dict(color="#1f77b4")))
+        fig.add_trace(go.Scatter(x=corr["Date"], y=corr["Brent_Price_USD"], name="Brent Price", yaxis="y2", line=dict(color="#ff7f0e")))
+        fig.update_layout(title="Production vs Brent Price", xaxis=dict(title="Month"), yaxis=dict(title="Production (kbpd)", titlefont=dict(color="#1f77b4"), tickfont=dict(color="#1f77b4"), side="left"), yaxis2=dict(title="Price (USD/bbl)", titlefont=dict(color="#ff7f0e"), tickfont=dict(color="#ff7f0e"), overlaying="y", side="right"), legend=dict(x=0.1,y=1.1,orientation="h"), hovermode="x unified")
+        st.plotly_chart(fig, width="stretch")
+    with col2:
+        st.metric("Correlation", f"{coef:.3f}")
+        if abs(coef)>0.7: st.success("Strong")
+        elif abs(coef)>0.4: st.info("Moderate")
+        else: st.warning("Weak")
 except Exception as e:
-    st.error(f"Error in correlation analysis: {e}")
+    st.error(f"Error: {e}")
 
-# --- FOOTER ---
+# Footer
 st.markdown("---")
 st.markdown("""
-<div style='text-align: center; color: #666; font-size: 14px; padding: 20px 0;'>
-    This web app was conceptualized and designed by <strong>Gerson Japhet Fumbuka</strong>, 
-    a DBA scholar at INTI International University and Colleges, Nilai, Malaysia.<br>
-    For any comments, please contact following email address: 
-    <a href='mailto:oilproductiondashboard@gmail.com'>oilproductiondashboard@gmail.com</a>
+<div style='text-align:center;color:#666;font-size:14px;padding:20px 0'>
+    Conceptualized and designed by <strong>Gerson Japhet Fumbuka</strong>, DBA scholar at INTI International University and Colleges, Nilai, Malaysia.<br>
+    Contact: <a href='mailto:oilproductiondashboard@gmail.com'>oilproductiondashboard@gmail.com</a>
 </div>
 """, unsafe_allow_html=True)
 
-# Deploy Update v2 Mon Apr 20 16:29:04 EAT 2026
