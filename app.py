@@ -8,17 +8,35 @@ import io
 from fpdf import FPDF
 import yfinance as yf
 import warnings
+import base64
+import os
 
 warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="🌍 Global Oil Analytics Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# --- THEME ---
-st.markdown("""
+# --- THEME & PHOTO LOADING ---
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+# Load profile image if it exists
+profile_img = None
+if os.path.exists("profile.jpg"):
+    profile_img_base64 = get_base64_of_bin_file("profile.jpg")
+    profile_img = f'<img src="data:image/jpg;base64,{profile_img_base64}" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:3px solid #1a365d;">'
+else:
+    profile_img = '<img src="https://via.placeholder.com/150" style="width:150px;height:150px;border-radius:50%;object-fit:cover;">'
+
+st.markdown(f"""
 <style>
-    .main { background-color: #f8f9fa; }
-    h1, h2, h3 { color: #1a365d; font-family: 'Helvetica Neue', sans-serif; }
-    .stMetric { background-color: #ffffff; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .main {{ background-color: #f8f9fa; }}
+    h1, h2, h3 {{ color: #1a365d; font-family: 'Helvetica Neue', sans-serif; }}
+    .stMetric {{ background-color: #ffffff; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
+    .profile-container {{ text-align: center; padding: 20px 0; }}
+    .profile-name {{ font-size: 18px; font-weight: bold; color: #1a365d; margin-top: 15px; }}
+    .profile-title {{ font-size: 14px; color: #555; margin-top: 5px; line-height: 1.4; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -82,15 +100,12 @@ def load_prices():
         dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
         return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 65 + np.random.normal(0, 5)} for d in dates])
 
-# Simple linear forecast using numpy (no statsmodels needed!)
 def forecast_simple(df_country, steps=12):
     df_country = df_country.sort_values("Date").reset_index(drop=True)
     x = np.arange(len(df_country))
     y = df_country["Production_kbpd"].values
-    # Linear regression
     coeffs = np.polyfit(x, y, 1)
     poly = np.poly1d(coeffs)
-    # Forecast
     future_x = np.arange(len(df_country), len(df_country) + steps)
     forecast_vals = poly(future_x)
     future_dates = [df_country["Date"].max() + timedelta(days=30*i) for i in range(1, steps+1)]
@@ -103,6 +118,16 @@ def forecast_simple(df_country, steps=12):
 st.title("🌍 Global Oil Analytics Dashboard v2")
 st.caption("📊 Advanced Analytics | Forecasting | Multi-Region Support")
 
+# SIDEBAR WITH PHOTO
+st.sidebar.markdown(f"""
+<div class="profile-container">
+    {profile_img}
+    <div class="profile-name">Gerson Japhet Fumbuka</div>
+    <div class="profile-title">DBA Scholar<br>INTI International University<br>Nilai, Malaysia</div>
+</div>
+""", unsafe_allow_html=True)
+
+st.sidebar.markdown("---")
 st.sidebar.header("🔍 Controls")
 region = st.sidebar.selectbox("Select Region", list(REGIONS.keys()), index=0)
 show_fc = st.sidebar.checkbox("Show 12-Month Forecast", value=True)
@@ -154,7 +179,7 @@ with tab2:
     else:
         st.info("Enable forecast in sidebar")
 
-# Price Correlation
+# Price Correlation - FIXED PLOTLY SYNTAX
 st.subheader("💰 Brent Price Correlation")
 try:
     corr = prod_with_price.groupby("Date")[["Production_kbpd","Brent_Price_USD"]].sum().reset_index()
@@ -164,7 +189,24 @@ try:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=corr["Date"], y=corr["Production_kbpd"], name="Production", yaxis="y1", line=dict(color="#1f77b4")))
         fig.add_trace(go.Scatter(x=corr["Date"], y=corr["Brent_Price_USD"], name="Brent Price", yaxis="y2", line=dict(color="#ff7f0e")))
-        fig.update_layout(title="Production vs Brent Price", xaxis=dict(title="Month"), yaxis=dict(title="Production (kbpd)", titlefont=dict(color="#1f77b4"), tickfont=dict(color="#1f77b4"), side="left"), yaxis2=dict(title="Price (USD/bbl)", titlefont=dict(color="#ff7f0e"), tickfont=dict(color="#ff7f0e"), overlaying="y", side="right"), legend=dict(x=0.1,y=1.1,orientation="h"), hovermode="x unified")
+        # CORRECTED: Use title=dict(text=..., font=...) instead of titlefont
+        fig.update_layout(
+            title="Production vs Brent Price",
+            xaxis=dict(title="Month"),
+            yaxis=dict(
+                title=dict(text="Production (kbpd)", font=dict(color="#1f77b4")),
+                tickfont=dict(color="#1f77b4"),
+                side="left"
+            ),
+            yaxis2=dict(
+                title=dict(text="Price (USD/bbl)", font=dict(color="#ff7f0e")),
+                tickfont=dict(color="#ff7f0e"),
+                overlaying="y",
+                side="right"
+            ),
+            legend=dict(x=0.1, y=1.1, orientation="h"),
+            hovermode="x unified"
+        )
         st.plotly_chart(fig, width="stretch")
     with col2:
         st.metric("Correlation", f"{coef:.3f}")
@@ -178,7 +220,6 @@ except Exception as e:
 st.markdown("---")
 st.markdown("""
 <div style='text-align:center;color:#666;font-size:14px;padding:20px 0'>
-    Conceptualized and designed by <strong>Gerson Japhet Fumbuka</strong>, DBA scholar at INTI International University and Colleges, Nilai, Malaysia.<br>
     Contact: <a href='mailto:oilproductiondashboard@gmail.com'>oilproductiondashboard@gmail.com</a>
 </div>
 """, unsafe_allow_html=True)
