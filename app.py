@@ -202,11 +202,65 @@ with st.sidebar.expander("📚 Data Sources & Methodology"):
     st.markdown("### ⚠️ Limitations")
     st.markdown("Static historical data is used for demonstration. Forecasts represent linear trend projections and do not account for geopolitical shocks, OPEC+ policy changes, or structural market shifts. For academic research, replace static arrays with live EIA/API endpoints.")
 
+# 📤 CUSTOM DATA UPLOAD (CSV/Excel)
+st.sidebar.markdown("### 📤 Upload Custom Data")
+st.sidebar.caption("Upload your own production data (CSV or Excel). Required columns: `Date`, `Country`, `Production_kbpd`")
+
+uploaded_file = st.sidebar.file_uploader("Choose a file", type=["csv", "xlsx", "xls"])
+
+use_custom_data = False
+custom_df = None
+
+if uploaded_file is not None:
+    try:
+        # Read file based on extension
+        if uploaded_file.name.endswith('.csv'):
+            custom_df = pd.read_csv(uploaded_file)
+        else:
+            custom_df = pd.read_excel(uploaded_file)
+        
+        # Validate required columns
+        required_cols = ['Date', 'Country', 'Production_kbpd']
+        if not all(col in custom_df.columns for col in required_cols):
+            st.sidebar.error(f"❌ Missing required columns: {required_cols}")
+            st.sidebar.info("✅ Expected columns: `Date`, `Country`, `Production_kbpd` (plus optional: `ISO3`, `Region`)")
+        else:
+            # Parse Date column
+            custom_df['Date'] = pd.to_datetime(custom_df['Date'])
+            custom_df['Year'] = custom_df['Date'].dt.year
+            custom_df['Month'] = custom_df['Date'].dt.month
+            
+            # Add ISO3 and Region if missing (basic fallback)
+            if 'ISO3' not in custom_df.columns:
+                custom_df['ISO3'] = custom_df['Country'].apply(lambda x: x[:3].upper())
+            if 'Region' not in custom_df.columns:
+                custom_df['Region'] = 'Custom Upload'
+            
+            # Show preview
+            with st.sidebar.expander("👁️ Preview Uploaded Data"):
+                st.dataframe(custom_df.head(), use_container_width=True)
+                st.caption(f"📊 {len(custom_df)} rows | Columns: {', '.join(custom_df.columns.tolist())}")
+            
+            # Toggle to use custom data
+            use_custom_data = st.sidebar.checkbox("✅ Use Uploaded Data", value=True)
+            if use_custom_data:
+                st.sidebar.success("🔄 Dashboard now using your uploaded data!")
+                
+    except Exception as e:
+        st.sidebar.error(f"❌ Error reading file: {e}")
+        st.sidebar.info("💡 Tips: Ensure file is CSV/Excel and Date column is in YYYY-MM-DD format")
+
+st.sidebar.markdown("---")
 st.sidebar.header("🔍 Controls")
 region = st.sidebar.selectbox("Select Region", list(REGIONS.keys()), index=0)
 show_fc = st.sidebar.checkbox("Show 12-Month Forecast", value=True)
 
-prod_df = load_production_data(region)
+# Use custom data if uploaded and toggle is on, otherwise use default
+if use_custom_data and custom_df is not None:
+    prod_df = custom_df.copy()
+    st.info(f"📤 Using uploaded dataset: {len(prod_df)} rows from {prod_df['Country'].nunique()} countries")
+else:
+    prod_df = load_production_data(region)
 price_df = load_prices()
 prod_with_price = prod_df.merge(price_df, on=["Date", "Year", "Month"], how="left")
 
@@ -354,5 +408,6 @@ st.markdown("""
     Contact: <a href='mailto:oilproductiondashboard@gmail.com'>oilproductiondashboard@gmail.com</a>
 </div>
 """, unsafe_allow_html=True)
+
 
 
