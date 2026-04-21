@@ -86,19 +86,36 @@ def load_production_data(region):
             records.append({"Date": date, "Year": date.year, "Month": date.month, "ISO3": c["iso"], "Country": c["name"], "Region": region, "Production_kbpd": round(prod, 1)})
     return pd.DataFrame(records)
 
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=3600) # Cache for 1 hour
 def load_prices():
+    """Fetches real-time Brent Crude prices using Yahoo Finance."""
     try:
-        df = yf.download("BZ=F", start="2018-01-01", end="2024-12-31", progress=False)
-        if df.empty: raise Exception()
-        df = df["Close"].resample("MS").mean().reset_index()
-        df.columns = ["Date", "Brent_Price_USD"]
-        df["Year"] = df["Date"].dt.year
-        df["Month"] = df["Date"].dt.month
-        return df[["Date", "Year", "Month", "Brent_Price_USD"]].dropna()
-    except:
+        # Download last 5 years of monthly data
+        df = yf.download("BZ=F", period="5y", interval="1mo", progress=False)
+        
+        if df.empty:
+            raise Exception("Empty Data")
+            
+        # Extract Close price using xs (cross-section) which handles MultiIndex well
+        # This grabs the 'Close' level from the 'Price' axis
+        close_series = df.xs('Close', level='Price', axis=1)
+        
+        # Convert Series to DataFrame and reset index to make Date a column
+        df_prices = close_series.reset_index()
+        df_prices.columns = ['Date', 'Brent_Price_USD']
+        
+        # Ensure Date is datetime and normalize time to midnight for matching
+        df_prices['Date'] = pd.to_datetime(df_prices['Date']).dt.normalize()
+        df_prices['Year'] = df_prices['Date'].dt.year
+        df_prices['Month'] = df_prices['Date'].dt.month
+        
+        return df_prices
+        
+    except Exception as e:
+        st.warning(f"⚠️ Could not fetch live prices: {e}. Using fallback.")
+        # Fallback to static data if API fails
         dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
-        return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 65 + np.random.normal(0, 5)} for d in dates])
+        return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 70 + np.random.normal(0, 10)} for d in dates])
 
 def forecast_simple(df_country, steps=12):
     df_country = df_country.sort_values("Date").reset_index(drop=True)
@@ -236,10 +253,14 @@ with tab2:
     else:
         st.info("Enable forecast in sidebar")
 
-# Price Correlation
+#Price Correlation
 st.subheader("💰 Brent Price Correlation")
 try:
-    corr = prod_with_price.groupby("Date")[["Production_kbpd","Brent_Price_USD"]].sum().reset_index()
+    # Group by Date: SUM production, but take MEAN price (to avoid summing the price 5 times)
+    corr = prod_with_price.groupby("Date").agg({
+        "Production_kbpd": "sum",
+        "Brent_Price_USD": "mean" 
+    }).reset_index()
     coef = corr["Production_kbpd"].corr(corr["Brent_Price_USD"])
     col1,col2 = st.columns([3,1])
     with col1:
@@ -279,3 +300,5 @@ st.markdown("""
     Contact: <a href='mailto:oilproductiondashboard@gmail.com'>oilproductiondashboard@gmail.com</a>
 </div>
 """, unsafe_allow_html=True)
+
+
