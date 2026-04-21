@@ -214,6 +214,60 @@ countries = prod_df["Country"].unique()
 selected = st.sidebar.multiselect("Select Countries", countries, default=countries[:3] if len(countries)>=3 else countries)
 if not selected:
     st.warning("Select at least one country."); st.stop()
+# 🔔 PRODUCTION DROP ALERTS (Simulated)
+enable_alerts = st.sidebar.checkbox("🔔 Enable Production Drop Alerts", value=False)
+
+if enable_alerts:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🚨 Production Monitoring")
+    
+    alerts = []
+    # Check last 12 months of data for each selected country
+    cutoff_date = prod_df["Date"].max() - pd.DateOffset(months=12)
+    recent_data = prod_df[prod_df["Date"] >= cutoff_date]
+    
+    for country in selected:
+        country_data = recent_data[recent_data["Country"] == country].sort_values("Date").copy()
+        if len(country_data) < 2: continue
+            
+        country_data["MoM_Change"] = country_data["Production_kbpd"].pct_change() * 100
+        drops = country_data[country_data["MoM_Change"] < -10]
+        
+        if not drops.empty:
+            latest = drops.iloc[-1]
+            alerts.append({
+                "country": country,
+                "drop_pct": abs(latest["MoM_Change"]),
+                "date": latest["Date"],
+                "production": latest["Production_kbpd"]
+            })
+    
+    if alerts:
+        st.sidebar.markdown("⚠️ **Significant Drops Detected (>10%)**")
+        for alert in alerts:
+            st.sidebar.error(
+                f"📉 **{alert['country']}**\n"
+                f"Drop: {alert['drop_pct']:.1f}%\n"
+                f"Period: {alert['date'].strftime('%b %Y')}\n"
+                f"Output: {alert['production']:.0f} kbpd"
+            )
+            
+        # Simulated Email Preview
+        with st.sidebar.expander("📧 Simulated Email Log"):
+            st.caption("🔒 *Email sending is simulated. In production, integrate SendGrid/Mailgun here.*")
+            for alert in alerts:
+                email_template = (
+                    f"**To:** admin@oilanalytics.com\n"
+                    f"**Subject:** 🚨 ALERT: {alert['country']} Production Drop\n"
+                    f"**Body:**\n"
+                    f"Production fell by {alert['drop_pct']:.1f}% to {alert['production']:.0f} kbpd in {alert['date'].strftime('%B %Y')}.\n"
+                    f"Threshold: >10% drop\n"
+                    f"Action: Review supply chain & OPEC+ compliance."
+                )
+                st.code(email_template, language="text")
+    else:
+        st.sidebar.success("✅ No significant drops detected in the last 12 months.")
+
 
 prod_filt = prod_df[prod_df["Country"].isin(selected)]
 prod_trend = prod_df[prod_df["Country"].isin(selected)].sort_values("Date")
