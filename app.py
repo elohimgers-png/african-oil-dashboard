@@ -128,6 +128,63 @@ st.sidebar.markdown(f"""
 """, unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
+
+# 📖 ABOUT THIS DASHBOARD
+with st.sidebar.expander("📖 About This Dashboard"):
+    st.markdown("""
+    ### 🎯 Purpose
+    This **Global Oil Production & Analytics Dashboard** is an open-access, interactive research tool designed to advance evidence-based understanding of petroleum resource dynamics across major oil-producing regions.
+    
+    ### 🌐 Why This Matters
+    - **Global Significance**: Oil production drives economic development, geopolitical power, and energy security
+    - **Data Transparency**: Addresses fragmented data through open, standardized presentation
+    - **Academic Rigor**: Provides methodological transparency for peer-reviewed research
+    - **Policy Support**: Enables data-driven decision-making for stakeholders
+    
+    ### 🎓 Benefits
+    
+    **For Students:**
+    - ✅ Hands-on learning with real production trends
+    - ✅ Skill development in data visualization and statistical analysis
+    - ✅ Project inspiration for term papers and thesis work
+    
+    **For Researchers:**
+    - ✅ Rapid hypothesis testing across regions and time periods
+    - ✅ Methodological transparency with documented calculations
+    - ✅ Cross-disciplinary collaboration support
+    
+    **For Scholars:**
+    - ✅ Evidence-based advocacy and policy dialogue
+    - ✅ Longitudinal analysis of structural vs. cyclical trends
+    - ✅ Global comparative work and capacity building
+    
+    ### 🔓 Open Access
+    This dashboard is provided under principles of **open science** and **equitable knowledge access**—free to use, transparent methodology, and privacy-respecting.
+    """)
+
+# 📚 DATA SOURCES & METHODOLOGY
+with st.sidebar.expander("📚 Data Sources & Methodology"):
+    st.markdown("### 🔍 Data Sources")
+    st.markdown("- **Production & Reserves**: U.S. Energy Information Administration (EIA), OPEC Annual Statistical Bulletin, World Bank Open Data")
+    st.markdown("- **Brent Crude Prices**: Yahoo Finance (Ticker: `BZ=F`)")
+    st.markdown("- **Country Codes**: ISO 3166-1 alpha-3 standard")
+    
+    st.markdown("### 📐 Methodology")
+    st.markdown("- **Units**: Production in thousand barrels per day (kbpd); Reserves in billion barrels (Bbbl)")
+    st.markdown("- **R/P Ratio**: `(Reserves_Bbbl × 1000) / Annual_Production_Mbbl`")
+    st.markdown("- **Forecasting**: Ordinary Least Squares (OLS) linear trend extrapolation (12-month horizon)")
+    st.markdown("- **Correlation**: Pearson coefficient between aggregated regional production and monthly Brent spot prices")
+    
+    st.markdown("### 📅 Last Updated")
+    st.code(datetime.now().strftime('%Y-%m-%d %H:%M UTC'))
+    
+    st.markdown("### 📖 Suggested Citation (APA)")
+    citation = f"Fumbuka, G. J. (2026). Global Oil Analytics Dashboard v2 [Web application]. INTI International University. https://global-oil-dashboard-cobdnhgtjbkuplybfqncmq.streamlit.app"
+    st.code(citation, language=None)
+    
+    st.markdown("### ⚠️ Limitations")
+    st.markdown("Static historical data is used for demonstration. Forecasts represent linear trend projections and do not account for geopolitical shocks, OPEC+ policy changes, or structural market shifts. For academic research, replace static arrays with live EIA/API endpoints.")
+
 st.sidebar.header("🔍 Controls")
 region = st.sidebar.selectbox("Select Region", list(REGIONS.keys()), index=0)
 show_fc = st.sidebar.checkbox("Show 12-Month Forecast", value=True)
@@ -179,7 +236,7 @@ with tab2:
     else:
         st.info("Enable forecast in sidebar")
 
-# Price Correlation - FIXED PLOTLY SYNTAX
+# Price Correlation
 st.subheader("💰 Brent Price Correlation")
 try:
     corr = prod_with_price.groupby("Date")[["Production_kbpd","Brent_Price_USD"]].sum().reset_index()
@@ -189,7 +246,6 @@ try:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=corr["Date"], y=corr["Production_kbpd"], name="Production", yaxis="y1", line=dict(color="#1f77b4")))
         fig.add_trace(go.Scatter(x=corr["Date"], y=corr["Brent_Price_USD"], name="Brent Price", yaxis="y2", line=dict(color="#ff7f0e")))
-        # CORRECTED: Use title=dict(text=..., font=...) instead of titlefont
         fig.update_layout(
             title="Production vs Brent Price",
             xaxis=dict(title="Month"),
@@ -223,4 +279,3 @@ st.markdown("""
     Contact: <a href='mailto:oilproductiondashboard@gmail.com'>oilproductiondashboard@gmail.com</a>
 </div>
 """, unsafe_allow_html=True)
-
