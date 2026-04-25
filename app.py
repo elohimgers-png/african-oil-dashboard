@@ -4,8 +4,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime, timedelta
-import io
-from fpdf import FPDF
 import yfinance as yf
 import warnings
 import base64
@@ -21,7 +19,6 @@ def get_base64_of_bin_file(bin_file):
         data = f.read()
     return base64.b64encode(data).decode()
 
-# Load profile image if it exists
 profile_img = None
 if os.path.exists("profile.jpg"):
     profile_img_base64 = get_base64_of_bin_file("profile.jpg")
@@ -86,34 +83,44 @@ def load_production_data(region):
             records.append({"Date": date, "Year": date.year, "Month": date.month, "ISO3": c["iso"], "Country": c["name"], "Region": region, "Production_kbpd": round(prod, 1)})
     return pd.DataFrame(records)
 
-@st.cache_data(ttl=3600) # Cache for 1 hour
+
+@st.cache_data(ttl=3600)
 def load_prices():
-    """Fetches real-time Brent Crude prices using Yahoo Finance."""
     try:
         # Download last 5 years of monthly data
         df = yf.download("BZ=F", period="5y", interval="1mo", progress=False)
         
         if df.empty:
             raise Exception("Empty Data")
-            
-        # Extract Close price using xs (cross-section) which handles MultiIndex well
-        # This grabs the 'Close' level from the 'Price' axis
-        close_series = df.xs('Close', level='Price', axis=1)
         
-        # Convert Series to DataFrame and reset index to make Date a column
-        df_prices = close_series.reset_index()
-        df_prices.columns = ['Date', 'Brent_Price_USD']
+        # Handle MultiIndex - extract Close price properly
+        if isinstance(df.columns, pd.MultiIndex):
+            # Get the Close price column (it's a tuple like ('Close', 'BZ=F'))
+            close_col = [col for col in df.columns if 'Close' in col[0]][0]
+            df = df[[close_col]].copy()
+            df.columns = ['Brent_Price_USD']
+        else:
+            df = df[['Close']].copy()
+            df.columns = ['Brent_Price_USD']
         
-        # Ensure Date is datetime and normalize time to midnight for matching
-        df_prices['Date'] = pd.to_datetime(df_prices['Date']).dt.normalize()
-        df_prices['Year'] = df_prices['Date'].dt.year
-        df_prices['Month'] = df_prices['Date'].dt.month
+        # Reset index to make Date a column
+        df = df.reset_index()
+        df.columns = ['Date', 'Brent_Price_USD']
         
-        return df_prices
+        # Clean and format
+        df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
+        df['Year'] = df['Date'].dt.year
+        df['Month'] = df['Date'].dt.month
+        df = df.dropna()
+        
+        if df.empty:
+            raise Exception("No valid data after cleaning")
+        
+        return df
         
     except Exception as e:
         st.warning(f"⚠️ Could not fetch live prices: {e}. Using fallback.")
-        # Fallback to static data if API fails
+        # Fallback to static data
         dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
         return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 70 + np.random.normal(0, 10)} for d in dates])
 
@@ -158,25 +165,8 @@ with st.sidebar.expander("📖 About This Dashboard"):
     - **Academic Rigor**: Provides methodological transparency for peer-reviewed research
     - **Policy Support**: Enables data-driven decision-making for stakeholders
     
-    ### 🎓 Benefits
-    
-    **For Students:**
-    - ✅ Hands-on learning with real production trends
-    - ✅ Skill development in data visualization and statistical analysis
-    - ✅ Project inspiration for term papers and thesis work
-    
-    **For Researchers:**
-    - ✅ Rapid hypothesis testing across regions and time periods
-    - ✅ Methodological transparency with documented calculations
-    - ✅ Cross-disciplinary collaboration support
-    
-    **For Scholars:**
-    - ✅ Evidence-based advocacy and policy dialogue
-    - ✅ Longitudinal analysis of structural vs. cyclical trends
-    - ✅ Global comparative work and capacity building
-    
     ### 🔓 Open Access
-    This dashboard is provided under principles of **open science** and **equitable knowledge access**—free to use, transparent methodology, and privacy-respecting.
+    This dashboard is provided under principles of **open science** and **equitable knowledge access**.
     """)
 
 # 📚 DATA SOURCES & METHODOLOGY
@@ -184,11 +174,9 @@ with st.sidebar.expander("📚 Data Sources & Methodology"):
     st.markdown("### 🔍 Data Sources")
     st.markdown("- **Production & Reserves**: U.S. Energy Information Administration (EIA), OPEC Annual Statistical Bulletin, World Bank Open Data")
     st.markdown("- **Brent Crude Prices**: Yahoo Finance (Ticker: `BZ=F`)")
-    st.markdown("- **Country Codes**: ISO 3166-1 alpha-3 standard")
     
     st.markdown("### 📐 Methodology")
-    st.markdown("- **Units**: Production in thousand barrels per day (kbpd); Reserves in billion barrels (Bbbl)")
-    st.markdown("- **R/P Ratio**: `(Reserves_Bbbl × 1000) / Annual_Production_Mbbl`")
+    st.markdown("- **Units**: Production in thousand barrels per day (kbpd)")
     st.markdown("- **Forecasting**: Ordinary Least Squares (OLS) linear trend extrapolation (12-month horizon)")
     st.markdown("- **Correlation**: Pearson coefficient between aggregated regional production and monthly Brent spot prices")
     
@@ -198,69 +186,42 @@ with st.sidebar.expander("📚 Data Sources & Methodology"):
     st.markdown("### 📖 Suggested Citation (APA)")
     citation = f"Fumbuka, G. J. (2026). Global Oil Analytics Dashboard v2 [Web application]. INTI International University. https://global-oil-dashboard-cobdnhgtjbkuplybfqncmq.streamlit.app"
     st.code(citation, language=None)
+
+# ❓ USER GUIDE & INSTRUCTIONS
+with st.sidebar.expander("❓ User Guide & Help"):
+    st.markdown("""
+    ### 🚀 Quick Start
+    1. **Select Region**: Choose from Africa, Middle East, Asia Pacific, or Americas.
+    2. **Pick Countries**: Select 1–5 countries to analyze.
+    3. **Explore**: View the production map, trends, and live Brent price correlation.
     
-    st.markdown("### ⚠️ Limitations")
-    st.markdown("Static historical data is used for demonstration. Forecasts represent linear trend projections and do not account for geopolitical shocks, OPEC+ policy changes, or structural market shifts. For academic research, replace static arrays with live EIA/API endpoints.")
+    ---
+    ### 📤 How to Upload Custom Data
+    1. Prepare a **CSV or Excel** file with columns: `Date`, `Country`, `Production_kbpd`.
+    2. Use the **"📤 Upload Custom Data"** widget below.
+    3. Check **"✅ Use Uploaded Data"** to switch views.
+    
+    ---
+    ### 🚨 Understanding Alerts
+    - Enable **"🔔 Production Drop Alerts"** to monitor for >10% monthly declines.
+    - Red alerts indicate significant drops requiring operational review.
+    
+    ---
+    ### 💡 Troubleshooting
+    - **Forecast missing?** Select exactly **ONE** country.
+    - **Chart empty?** Ensure you have selected at least one country.
+    
+    ---
+    ### 📬 Support
+    - **Issues/Bugs:** [GitHub Issues](https://github.com/elohimgers-png/global-oil-dashboard/issues)
+    - **Email:** oilproductiondashboard@gmail.com
+    """)
 
-# 📤 CUSTOM DATA UPLOAD (CSV/Excel)
-st.sidebar.markdown("### 📤 Upload Custom Data")
-st.sidebar.caption("Upload your own production data (CSV or Excel). Required columns: `Date`, `Country`, `Production_kbpd`")
-
-uploaded_file = st.sidebar.file_uploader("Choose a file", type=["csv", "xlsx", "xls"])
-
-use_custom_data = False
-custom_df = None
-
-if uploaded_file is not None:
-    try:
-        # Read file based on extension
-        if uploaded_file.name.endswith('.csv'):
-            custom_df = pd.read_csv(uploaded_file)
-        else:
-            custom_df = pd.read_excel(uploaded_file)
-        
-        # Validate required columns
-        required_cols = ['Date', 'Country', 'Production_kbpd']
-        if not all(col in custom_df.columns for col in required_cols):
-            st.sidebar.error(f"❌ Missing required columns: {required_cols}")
-            st.sidebar.info("✅ Expected columns: `Date`, `Country`, `Production_kbpd` (plus optional: `ISO3`, `Region`)")
-        else:
-            # Parse Date column
-            custom_df['Date'] = pd.to_datetime(custom_df['Date'])
-            custom_df['Year'] = custom_df['Date'].dt.year
-            custom_df['Month'] = custom_df['Date'].dt.month
-            
-            # Add ISO3 and Region if missing (basic fallback)
-            if 'ISO3' not in custom_df.columns:
-                custom_df['ISO3'] = custom_df['Country'].apply(lambda x: x[:3].upper())
-            if 'Region' not in custom_df.columns:
-                custom_df['Region'] = 'Custom Upload'
-            
-            # Show preview
-            with st.sidebar.expander("👁️ Preview Uploaded Data"):
-                st.dataframe(custom_df.head(), use_container_width=True)
-                st.caption(f"📊 {len(custom_df)} rows | Columns: {', '.join(custom_df.columns.tolist())}")
-            
-            # Toggle to use custom data
-            use_custom_data = st.sidebar.checkbox("✅ Use Uploaded Data", value=True)
-            if use_custom_data:
-                st.sidebar.success("🔄 Dashboard now using your uploaded data!")
-                
-    except Exception as e:
-        st.sidebar.error(f"❌ Error reading file: {e}")
-        st.sidebar.info("💡 Tips: Ensure file is CSV/Excel and Date column is in YYYY-MM-DD format")
-
-st.sidebar.markdown("---")
 st.sidebar.header("🔍 Controls")
 region = st.sidebar.selectbox("Select Region", list(REGIONS.keys()), index=0)
 show_fc = st.sidebar.checkbox("Show 12-Month Forecast", value=True)
 
-# Use custom data if uploaded and toggle is on, otherwise use default
-if use_custom_data and custom_df is not None:
-    prod_df = custom_df.copy()
-    st.info(f"📤 Using uploaded dataset: {len(prod_df)} rows from {prod_df['Country'].nunique()} countries")
-else:
-    prod_df = load_production_data(region)
+prod_df = load_production_data(region)
 price_df = load_prices()
 prod_with_price = prod_df.merge(price_df, on=["Date", "Year", "Month"], how="left")
 
@@ -268,60 +229,6 @@ countries = prod_df["Country"].unique()
 selected = st.sidebar.multiselect("Select Countries", countries, default=countries[:3] if len(countries)>=3 else countries)
 if not selected:
     st.warning("Select at least one country."); st.stop()
-# 🔔 PRODUCTION DROP ALERTS (Simulated)
-enable_alerts = st.sidebar.checkbox("🔔 Enable Production Drop Alerts", value=False)
-
-if enable_alerts:
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🚨 Production Monitoring")
-    
-    alerts = []
-    # Check last 12 months of data for each selected country
-    cutoff_date = prod_df["Date"].max() - pd.DateOffset(months=12)
-    recent_data = prod_df[prod_df["Date"] >= cutoff_date]
-    
-    for country in selected:
-        country_data = recent_data[recent_data["Country"] == country].sort_values("Date").copy()
-        if len(country_data) < 2: continue
-            
-        country_data["MoM_Change"] = country_data["Production_kbpd"].pct_change() * 100
-        drops = country_data[country_data["MoM_Change"] < -10]
-        
-        if not drops.empty:
-            latest = drops.iloc[-1]
-            alerts.append({
-                "country": country,
-                "drop_pct": abs(latest["MoM_Change"]),
-                "date": latest["Date"],
-                "production": latest["Production_kbpd"]
-            })
-    
-    if alerts:
-        st.sidebar.markdown("⚠️ **Significant Drops Detected (>10%)**")
-        for alert in alerts:
-            st.sidebar.error(
-                f"📉 **{alert['country']}**\n"
-                f"Drop: {alert['drop_pct']:.1f}%\n"
-                f"Period: {alert['date'].strftime('%b %Y')}\n"
-                f"Output: {alert['production']:.0f} kbpd"
-            )
-            
-        # Simulated Email Preview
-        with st.sidebar.expander("📧 Simulated Email Log"):
-            st.caption("🔒 *Email sending is simulated. In production, integrate SendGrid/Mailgun here.*")
-            for alert in alerts:
-                email_template = (
-                    f"**To:** admin@oilanalytics.com\n"
-                    f"**Subject:** 🚨 ALERT: {alert['country']} Production Drop\n"
-                    f"**Body:**\n"
-                    f"Production fell by {alert['drop_pct']:.1f}% to {alert['production']:.0f} kbpd in {alert['date'].strftime('%B %Y')}.\n"
-                    f"Threshold: >10% drop\n"
-                    f"Action: Review supply chain & OPEC+ compliance."
-                )
-                st.code(email_template, language="text")
-    else:
-        st.sidebar.success("✅ No significant drops detected in the last 12 months.")
-
 
 prod_filt = prod_df[prod_df["Country"].isin(selected)]
 prod_trend = prod_df[prod_df["Country"].isin(selected)].sort_values("Date")
@@ -361,15 +268,17 @@ with tab2:
     else:
         st.info("Enable forecast in sidebar")
 
-#Price Correlation
+# Price Correlation
 st.subheader("💰 Brent Price Correlation")
 try:
-    # Group by Date: SUM production, but take MEAN price (to avoid summing the price 5 times)
+    # Group by Date: SUM production, but MEAN price (to avoid summing price across countries)
     corr = prod_with_price.groupby("Date").agg({
         "Production_kbpd": "sum",
-        "Brent_Price_USD": "mean" 
+        "Brent_Price_USD": "mean"
     }).reset_index()
+    
     coef = corr["Production_kbpd"].corr(corr["Brent_Price_USD"])
+
     col1,col2 = st.columns([3,1])
     with col1:
         fig = go.Figure()
@@ -378,17 +287,8 @@ try:
         fig.update_layout(
             title="Production vs Brent Price",
             xaxis=dict(title="Month"),
-            yaxis=dict(
-                title=dict(text="Production (kbpd)", font=dict(color="#1f77b4")),
-                tickfont=dict(color="#1f77b4"),
-                side="left"
-            ),
-            yaxis2=dict(
-                title=dict(text="Price (USD/bbl)", font=dict(color="#ff7f0e")),
-                tickfont=dict(color="#ff7f0e"),
-                overlaying="y",
-                side="right"
-            ),
+            yaxis=dict(title=dict(text="Production (kbpd)", font=dict(color="#1f77b4")), tickfont=dict(color="#1f77b4"), side="left"),
+            yaxis2=dict(title=dict(text="Price (USD/bbl)", font=dict(color="#ff7f0e")), tickfont=dict(color="#ff7f0e"), overlaying="y", side="right"),
             legend=dict(x=0.1, y=1.1, orientation="h"),
             hovermode="x unified"
         )
@@ -408,6 +308,3 @@ st.markdown("""
     Contact: <a href='mailto:oilproductiondashboard@gmail.com'>oilproductiondashboard@gmail.com</a>
 </div>
 """, unsafe_allow_html=True)
-
-
-
