@@ -8,6 +8,8 @@ import yfinance as yf
 import warnings
 import base64
 import os
+from prophet.plot import plot_components_plotly
+
 
 warnings.filterwarnings("ignore")
 
@@ -135,10 +137,10 @@ def forecast_prophet(df_country, steps=12):
         
         # Create and fit the model
         model = Prophet(
-            yearly_seasonality=True,  # Capture yearly patterns
+            yearly_seasonality=True,
             weekly_seasonality=False,
             daily_seasonality=False,
-            interval_width=0.95  # 95% confidence interval
+            interval_width=0.95
         )
         
         # Fit the model
@@ -150,10 +152,6 @@ def forecast_prophet(df_country, steps=12):
         # Make predictions
         forecast = model.predict(future)
         
-        # Separate historical and forecast data
-        hist = forecast[forecast['ds'] < df['ds'].max()].copy()
-        fc = forecast[forecast['ds'] >= df['ds'].max()].copy()
-        
         # Create visualization dataframe
         viz_df = pd.DataFrame({
             'Date': forecast['ds'],
@@ -163,14 +161,15 @@ def forecast_prophet(df_country, steps=12):
             'Type': ['Historical' if d < df['ds'].max() else 'Forecast' for d in forecast['ds']]
         })
         
-        return viz_df, model
+        # Return THREE values: viz dataframe, model, AND raw forecast for components
+        return viz_df, model, forecast
         
     except ImportError:
         st.error("Prophet library not installed. Please add 'prophet' to requirements.txt")
-        return None, None
+        return None, None, None
     except Exception as e:
         st.error(f"Forecasting error: {e}")
-        return None, None
+        return None, None, None
 
 
 # --- APP ---
@@ -293,10 +292,9 @@ with tab1:
 
 with tab2:
     if show_fc and len(selected)==1:
-        st.info(" Using Prophet ML Forecasting with seasonality detection")
+        st.info("🤖 Using Prophet ML Forecasting with seasonality detection")
         
-        fc_df, model = forecast_prophet(prod_df[prod_df["Country"]==selected[0]])
-        
+        fc_df, model, raw_forecast = forecast_prophet(prod_df[prod_df["Country"]==selected[0]])
         if fc_df is not None:
             # Plot with confidence intervals
             fig = go.Figure()
@@ -358,14 +356,27 @@ with tab2:
             
             # Show model components
             if st.checkbox("🔍 Show Model Components"):
-                st.caption("Prophet decomposes the time series into trend, seasonality, and residuals.")
-                # You can add component plots here if needed
+                st.caption("Prophet decomposes the time series into trend, seasonality, and residuals to explain forecast patterns.")
                 
+                try:
+                    fig_components = plot_components_plotly(model, raw_forecast)
+                    fig_components = plot_components_plotly(model, raw_forecast)
+                    fig_components.update_layout(title="📊 Prophet Model Components", height=800)
+                    st.plotly_chart(fig_components, width="stretch")
+                    
+                    st.markdown("""
+                    **Component Interpretation:**
+                    - **Trend:** Long-term direction of production (increasing/decreasing/stable)
+                    - **Yearly Seasonality:** Recurring annual patterns (e.g., higher production in certain months)
+                    - **Additive/Multiplicative:** Shows whether seasonal effects are constant or proportional to trend
+                    """)
+                except Exception as e:
+                    st.warning(f"Could not load component plots: {e}")
+                    
     elif len(selected)!=1:
         st.warning("⚠️ Select exactly ONE country for ML forecasting")
     else:
         st.info("Enable forecast in sidebar")
-
 
 # Price Correlation
 st.subheader("💰 Brent Price Correlation")
