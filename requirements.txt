@@ -2,7 +2,7 @@ streamlit
 pandas
 plotly
 numpy
-yfinance
+yfinance>=0.2.40
 openpyxl
 fpdf
 
