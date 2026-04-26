@@ -124,27 +124,61 @@ def load_prices():
         dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
         return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 70 + np.random.normal(0, 10)} for d in dates])
 
-def forecast_simple(df_country, steps=12):
-    df_country = df_country.sort_values("Date").reset_index(drop=True)
-    x = np.arange(len(df_country))
-    y = df_country["Production_kbpd"].values
-    coeffs = np.polyfit(x, y, 1)
-    poly = np.poly1d(coeffs)
-    future_x = np.arange(len(df_country), len(df_country) + steps)
-    forecast_vals = poly(future_x)
-    future_dates = [df_country["Date"].max() + timedelta(days=30*i) for i in range(1, steps+1)]
-    fc_df = pd.DataFrame({"Date": future_dates, "Forecast_kbpd": forecast_vals, "Type": "Forecast"})
-    hist_df = df_country[["Date", "Production_kbpd"]].rename(columns={"Production_kbpd": "Forecast_kbpd"})
-    hist_df["Type"] = "Historical"
-    return pd.concat([hist_df, fc_df])
+def forecast_prophet(df_country, steps=12):
+    """Advanced ML forecasting using Facebook Prophet."""
+    try:
+        from prophet import Prophet
+        
+        # Prepare data for Prophet (requires ds and y columns)
+        df = df_country[["Date", "Production_kbpd"]].copy()
+        df.columns = ['ds', 'y']
+        
+        # Create and fit the model
+        model = Prophet(
+            yearly_seasonality=True,  # Capture yearly patterns
+            weekly_seasonality=False,
+            daily_seasonality=False,
+            interval_width=0.95  # 95% confidence interval
+        )
+        
+        # Fit the model
+        model.fit(df)
+        
+        # Create future dataframe
+        future = model.make_future_dataframe(periods=steps, freq='MS')
+        
+        # Make predictions
+        forecast = model.predict(future)
+        
+        # Separate historical and forecast data
+        hist = forecast[forecast['ds'] < df['ds'].max()].copy()
+        fc = forecast[forecast['ds'] >= df['ds'].max()].copy()
+        
+        # Create visualization dataframe
+        viz_df = pd.DataFrame({
+            'Date': forecast['ds'],
+            'Forecast': forecast['yhat'],
+            'Lower_Bound': forecast['yhat_lower'],
+            'Upper_Bound': forecast['yhat_upper'],
+            'Type': ['Historical' if d < df['ds'].max() else 'Forecast' for d in forecast['ds']]
+        })
+        
+        return viz_df, model
+        
+    except ImportError:
+        st.error("Prophet library not installed. Please add 'prophet' to requirements.txt")
+        return None, None
+    except Exception as e:
+        st.error(f"Forecasting error: {e}")
+        return None, None
+
 
 # --- APP ---
 st.title("🌍 Global Oil Analytics Dashboard v2")
 st.caption("📊 Advanced Analytics | Forecasting | Multi-Region Support")
 
 # SIDEBAR WITH PHOTO
-st.sidebar.markdown(f"""
-<div class="profile-container">
+st.sidebar.markdown(f"""iner">
     {profile_img}
     <div class="profile-name">Gerson Japhet Fumbuka</div>
     <div class="profile-title">DBA Scholar<br>INTI International University<br>Nilai, Malaysia</div>
@@ -256,17 +290,82 @@ tab1, tab2 = st.tabs(["Historical Trend", "Simple Forecast"])
 with tab1:
     fig = px.line(prod_trend, x="Date", y="Production_kbpd", color="Country", markers=False)
     st.plotly_chart(fig, width="stretch")
+
 with tab2:
     if show_fc and len(selected)==1:
-        fc = forecast_simple(prod_df[prod_df["Country"]==selected[0]])
-        if fc is not None:
-            fig = px.line(fc, x="Date", y="Forecast_kbpd", color="Type", line_dash="Type", markers=True, title=f"Forecast for {selected[0]}")
+        st.info(" Using Prophet ML Forecasting with seasonality detection")
+        
+        fc_df, model = forecast_prophet(prod_df[prod_df["Country"]==selected[0]])
+        
+        if fc_df is not None:
+            # Plot with confidence intervals
+            fig = go.Figure()
+            
+            # Add confidence interval band
+            fig.add_trace(go.Scatter(
+                x=pd.concat([fc_df['Date'], fc_df['Date'][::-1]]),
+                y=pd.concat([fc_df['Upper_Bound'], fc_df['Lower_Bound'][::-1]]),
+                fill='toself',
+                fillcolor='rgba(0,100,80,0.2)',
+                line=dict(color='rgba(255,255,255,0)'),
+                name='95% Confidence Interval'
+            ))
+            
+            # Add forecast line
+            fig.add_trace(go.Scatter(
+                x=fc_df['Date'],
+                y=fc_df['Forecast'],
+                mode='lines',
+                line=dict(color='#ff7f0e', width=3),
+                name='Forecast',
+            ))
+            
+            # Add historical data
+            hist_data = fc_df[fc_df['Type']=='Historical']
+            fc_data = fc_df[fc_df['Type']=='Forecast']
+            
+            fig.add_trace(go.Scatter(
+                x=hist_data['Date'],
+                y=hist_data['Forecast'],
+                mode='lines',
+                line=dict(color='#1f77b4', width=2),
+                name='Historical'
+            ))
+            
+            fig.update_layout(
+                title=f"Prophet ML Forecast for {selected[0]}",
+                xaxis=dict(title="Month"),
+                yaxis=dict(title="Production (kbpd)"),
+                hovermode="x unified",
+                showlegend=True
+            )
+            
             st.plotly_chart(fig, width="stretch")
-            st.info("💡 Linear trend forecast based on historical data")
+            
+            # Show forecast metrics
+            st.subheader("📊 Forecast Summary")
+            col1, col2, col3 = st.columns(3)
+            
+            last_hist = hist_data['Forecast'].iloc[-1] if not hist_data.empty else 0
+            first_fc = fc_data['Forecast'].iloc[0] if not fc_data.empty else 0
+            last_fc = fc_data['Forecast'].iloc[-1] if not fc_data.empty else 0
+            
+            trend_pct = ((last_fc - last_hist) / last_hist * 100) if last_hist > 0 else 0
+            
+            col1.metric("12-Month Forecast", f"{last_fc:,.0f} kbpd")
+            col2.metric("Trend Direction", f"{trend_pct:+.1f}%")
+            col3.metric("Avg Confidence Range", f"±{(fc_data['Upper_Bound'].mean() - fc_data['Lower_Bound'].mean())/2:,.0f} kbpd")
+            
+            # Show model components
+            if st.checkbox("🔍 Show Model Components"):
+                st.caption("Prophet decomposes the time series into trend, seasonality, and residuals.")
+                # You can add component plots here if needed
+                
     elif len(selected)!=1:
-        st.warning("Select exactly ONE country for forecast")
+        st.warning("⚠️ Select exactly ONE country for ML forecasting")
     else:
         st.info("Enable forecast in sidebar")
+
 
 # Price Correlation
 st.subheader("💰 Brent Price Correlation")
