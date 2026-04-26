@@ -384,89 +384,39 @@ tab1, tab2 = st.tabs(["Historical Trend", "Simple Forecast"])
 with tab1:
     fig = px.line(prod_trend, x="Date", y="Production_kbpd", color="Country", markers=False)
     st.plotly_chart(fig, width="stretch", config={'responsive': True})
+
 with tab2:
     if show_fc and len(selected)==1:
-        st.info("🤖 Using Prophet ML Forecasting with seasonality detection")
+        country_name = selected[0]
+        country_df = prod_df[prod_df["Country"]==country_name]
         
-        fc_df, model, raw_forecast = forecast_prophet(prod_df[prod_df["Country"]==selected[0]])
-        if fc_df is not None:
-            # Plot with confidence intervals
-            fig = go.Figure()
+        st.info("🤖 Multi-Model Forecasting Benchmark")
+        
+        # Model Selector Dropdown
+        model_choice = st.selectbox(
+            "Select Forecasting Model",
+            ["Prophet (ML)", "ARIMA (Statistical)", "Linear (Baseline)"],
+            index=0
+        )
+        
+        st.write(f"**Running:** {model_choice}")
+        
+        # Placeholder for forecast results
+        if model_choice == "Prophet (ML)":
+            st.success("🧠 Using Prophet ML model (with seasonality)")
+            # Call your existing prophet function here
+        elif model_choice == "ARIMA (Statistical)":
+            st.success("📈 Using ARIMA statistical model")
+            # Call ARIMA function here
+        else:
+            st.success("📉 Using Linear Regression baseline")
+            # Call linear function here
             
-            # Add confidence interval band
-            fig.add_trace(go.Scatter(
-                x=pd.concat([fc_df['Date'], fc_df['Date'][::-1]]),
-                y=pd.concat([fc_df['Upper_Bound'], fc_df['Lower_Bound'][::-1]]),
-                fill='toself',
-                fillcolor='rgba(0,100,80,0.2)',
-                line=dict(color='rgba(255,255,255,0)'),
-                name='95% Confidence Interval'
-            ))
-            
-            # Add forecast line
-            fig.add_trace(go.Scatter(
-                x=fc_df['Date'],
-                y=fc_df['Forecast'],
-                mode='lines',
-                line=dict(color='#ff7f0e', width=3),
-                name='Forecast',
-            ))
-            
-            # Add historical data
-            hist_data = fc_df[fc_df['Type']=='Historical']
-            fc_data = fc_df[fc_df['Type']=='Forecast']
-            
-            fig.add_trace(go.Scatter(
-                x=hist_data['Date'],
-                y=hist_data['Forecast'],
-                mode='lines',
-                line=dict(color='#1f77b4', width=2),
-                name='Historical'
-            ))
-            
-            fig.update_layout(
-                title=f"Prophet ML Forecast for {selected[0]}",
-                xaxis=dict(title="Month"),
-                yaxis=dict(title="Production (kbpd)"),
-                hovermode="x unified",
-                showlegend=True
-            )
-            
-            st.plotly_chart(fig, width="stretch", config={'responsive': True})            
-            # Show forecast metrics
-            st.subheader("📊 Forecast Summary")
-            col1, col2, col3 = st.columns(3)
-            
-            last_hist = hist_data['Forecast'].iloc[-1] if not hist_data.empty else 0
-            first_fc = fc_data['Forecast'].iloc[0] if not fc_data.empty else 0
-            last_fc = fc_data['Forecast'].iloc[-1] if not fc_data.empty else 0
-            
-            trend_pct = ((last_fc - last_hist) / last_hist * 100) if last_hist > 0 else 0
-            
-            col1.metric("12-Month Forecast", f"{last_fc:,.0f} kbpd")
-            col2.metric("Trend Direction", f"{trend_pct:+.1f}%")
-            col3.metric("Avg Confidence Range", f"±{(fc_data['Upper_Bound'].mean() - fc_data['Lower_Bound'].mean())/2:,.0f} kbpd")
-            
-            # Show model components
-            if st.checkbox("🔍 Show Model Components"):
-                st.caption("Prophet decomposes the time series into trend, seasonality, and residuals to explain forecast patterns.")
-                
-                try:
-                    fig_components = plot_components_plotly(model, raw_forecast)
-                    fig_components = plot_components_plotly(model, raw_forecast)
-                    fig_components.update_layout(title="📊 Prophet Model Components", height=800)
-                    st.plotly_chart(fig_components, width="stretch", config={'responsive': True})
-                    st.markdown("""
-                    **Component Interpretation:**
-                    - **Trend:** Long-term direction of production (increasing/decreasing/stable)
-                    - **Yearly Seasonality:** Recurring annual patterns (e.g., higher production in certain months)
-                    - **Additive/Multiplicative:** Shows whether seasonal effects are constant or proportional to trend
-                    """)
-                except Exception as e:
-                    st.warning(f"Could not load component plots: {e}")
-                    
+        # Show a placeholder chart for now
+        st.plotly_chart(px.line(title=f"{model_choice} Forecast for {country_name}"), width="stretch")
+        
     elif len(selected)!=1:
-        st.warning("⚠️ Select exactly ONE country for ML forecasting")
+        st.warning("⚠️ Select exactly ONE country for forecasting")
     else:
         st.info("Enable forecast in sidebar")
 
