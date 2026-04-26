@@ -9,7 +9,6 @@ import warnings
 import base64
 import os
 from prophet import Prophet
-from prophet.plot import plot_components_plotly
 
 warnings.filterwarnings("ignore")
 
@@ -185,7 +184,6 @@ def forecast_simple(df_country, steps=12):
 def forecast_prophet(df_country, steps=12):
     """Advanced ML forecasting using Facebook Prophet."""
     try:
-        from prophet import Prophet
         df = df_country[["Date", "Production_kbpd"]].copy()
         df.columns = ['ds', 'y']
         model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False, interval_width=0.95)
@@ -245,14 +243,6 @@ def forecast_arima(df_country, steps=12):
     except Exception as e:
         st.error(f"ARIMA Error: {str(e)}")
         return None, None
-
-def calculate_metrics(y_true, y_pred):
-    """Calculate RMSE, MAE, and MAPE."""
-    from sklearn.metrics import mean_squared_error, mean_absolute_error
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    mae = mean_absolute_error(y_true, y_pred)
-    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-    return rmse, mae, mape
 
 # Main app
 def main():
@@ -338,21 +328,21 @@ def main():
                     index=0
                 )
                 
-                st.write(f"**Running:** {model_choice}")
-                
-                fc_df = None
-                
-                if model_choice == "Prophet (ML)":
-                    st.success("🧠 Using Prophet ML model with seasonality detection")
-                    fc_df, model_obj, raw_fc = forecast_prophet(country_df)
+                # Loading spinner for cloud performance
+                with st.spinner(f"⏳ Training {model_choice} model..."):
+                    fc_df = None
                     
-                elif model_choice == "ARIMA (Statistical)":
-                    st.success("📈 Using ARIMA statistical model")
-                    fc_df, model_obj = forecast_arima(country_df)
-                    
-                else:  # Linear
-                    st.success("📉 Using Linear Regression baseline")
-                    fc_df = forecast_simple(country_df)
+                    if model_choice == "Prophet (ML)":
+                        st.success("🧠 Using Prophet ML model with seasonality detection")
+                        fc_df, _, _ = forecast_prophet(country_df)
+                        
+                    elif model_choice == "ARIMA (Statistical)":
+                        st.success("📈 Using ARIMA statistical model")
+                        fc_df, _ = forecast_arima(country_df)
+                        
+                    else:  # Linear
+                        st.success("📉 Using Linear Regression baseline")
+                        fc_df = forecast_simple(country_df)
                 
                 if fc_df is not None and not fc_df.empty:
                     hist_data = fc_df[fc_df['Type']=='Historical']
@@ -398,48 +388,6 @@ def main():
                     
                     st.plotly_chart(fig, width="stretch")
                     
-                    # Model Performance Metrics
-                    st.subheader("📊 Model Performance (Last 12 Months)")
-                    actual_last_12 = country_df.tail(12)['Production_kbpd'].values
-                    metrics_rows = []
-                    
-                    # Linear
-                    x_train = np.arange(len(country_df)-12)
-                    y_train = country_df.head(len(country_df)-12)['Production_kbpd'].values
-                    coeffs_l = np.polyfit(x_train, y_train, 1)
-                    pred_l = np.poly1d(coeffs_l)(np.arange(len(country_df)-12, len(country_df)))
-                    rmse_l = np.sqrt(np.mean((actual_last_12 - pred_l)**2))
-                    metrics_rows.append({"Model": "Linear", "RMSE": f"{rmse_l:.2f}"})
-                    
-                    # Prophet
-                    try:
-                        prophet_df = country_df[['Date', 'Production_kbpd']].rename(columns={'Date':'ds', 'Production_kbpd':'y'})
-                        prop_mod = Prophet(yearly_seasonality=True, verbose=0)
-                        prop_mod.fit(prophet_df)
-                        prop_fc = prop_mod.predict(prophet_df.tail(12))
-                        rmse_p = np.sqrt(np.mean((actual_last_12 - prop_fc['yhat'].values)**2))
-                        metrics_rows.append({"Model": "Prophet", "RMSE": f"{rmse_p:.2f}"})
-                    except:
-                        metrics_rows.append({"Model": "Prophet", "RMSE": "N/A"})
-                    
-                    # ARIMA
-                    try:
-                        from statsmodels.tsa.arima.model import ARIMA
-                        arima_mod = ARIMA(country_df['Production_kbpd'].values[:-12], order=(1,1,1))
-                        arima_res = arima_mod.fit()
-                        pred_a = arima_res.forecast(steps=12)
-                        rmse_a = np.sqrt(np.mean((actual_last_12 - pred_a)**2))
-                        metrics_rows.append({"Model": "ARIMA", "RMSE": f"{rmse_a:.2f}"})
-                    except:
-                        metrics_rows.append({"Model": "ARIMA", "RMSE": "N/A"})
-                    
-                    metrics_df = pd.DataFrame(metrics_rows)
-                    st.dataframe(metrics_df, use_container_width=True)
-                    
-                    best = metrics_df.loc[metrics_df['RMSE'].idxmin(), 'Model'] if 'N/A' not in metrics_df['RMSE'].values else "N/A"
-                    if best != "N/A":
-                        st.success(f"🏆 **Best Model:** {best}")
-                        
                 else:
                     st.warning("No forecast data generated")
                     
