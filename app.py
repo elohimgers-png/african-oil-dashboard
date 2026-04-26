@@ -28,14 +28,109 @@ if os.path.exists("profile.jpg"):
 else:
     profile_img = '<img src="https://via.placeholder.com/150" style="width:150px;height:150px;border-radius:50%;object-fit:cover;">'
 
+# ... (previous code for profile image) ...
+
 st.markdown(f"""
 <style>
-    .main {{ background-color: #f8f9fa; }}
-    h1, h2, h3 {{ color: #1a365d; font-family: 'Helvetica Neue', sans-serif; }}
-    .stMetric {{ background-color: #ffffff; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-    .profile-container {{ text-align: center; padding: 20px 0; }}
-    .profile-name {{ font-size: 18px; font-weight: bold; color: #1a365d; margin-top: 15px; }}
-    .profile-title {{ font-size: 14px; color: #555; margin-top: 5px; line-height: 1.4; }}
+    /* Mobile-first responsive design */
+    @media (max-width: 768px) {{
+        .main .block-container {{
+            padding-top: 2rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }}
+        h1 {{ font-size: 1.5rem !important; }}
+        h2 {{ font-size: 1.2rem !important; }}
+        h3 {{ font-size: 1rem !important; }}
+        .stMetric {{ 
+            font-size: 0.9rem !important; 
+            padding: 8px !important;
+        }}
+        .stButton>button {{
+            font-size: 0.9rem !important;
+            padding: 0.5rem 1rem !important;
+        }}
+        .stTextInput>div>div>input {{
+            font-size: 16px !important; /* Prevents zoom on iOS */
+        }}
+        .stSelectbox>div>div>select {{
+            font-size: 16px !important;
+        }}
+    }}
+    
+    /* Touch-friendly interface */
+    .stButton>button {{
+        min-height: 44px;
+        min-width: 44px;
+    }}
+    
+    /* Better spacing for mobile */
+    .block-container {{
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }}
+    
+    /* Responsive metrics */
+    .stMetric {{
+        background-color: #ffffff;
+        padding: 12px;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }}
+    
+    /* Profile section */
+    .profile-container {{
+        text-align: center;
+        padding: 20px 0;
+    }}
+    .profile-name {{
+        font-size: 18px;
+        font-weight: bold;
+        color: #1a365d;
+        margin-top: 15px;
+    }}
+    .profile-title {{
+        font-size: 14px;
+        color: #555;
+        margin-top: 5px;
+        line-height: 1.4;
+    }}
+    
+    /* Main content */
+    .main {{
+        background-color: #f8f9fa;
+    }}
+    h1, h2, h3 {{
+        color: #1a365d;
+        font-family: 'Helvetica Neue', sans-serif;
+    }}
+    
+    /* Sidebar optimization */
+    section[data-testid="stSidebar"] {{
+        width: 300px;
+    }}
+    @media (max-width: 768px) {{
+        section[data-testid="stSidebar"] {{
+            width: 100%;
+            max-width: 100vw;
+        }}
+    }}
+    
+    /* Chart containers */
+    .stPlotlyChart {{
+        touch-action: manipulation;
+    }}
+    
+    /* Expanders for mobile */
+    .streamlit-expanderHeader {{
+        font-size: 1rem;
+        padding: 10px;
+    }}
+    
+    /* Prevent horizontal scroll */
+    body {{
+        overflow-x: hidden;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -281,15 +376,14 @@ if not prod_filt.empty:
     map_df = prod_filt.groupby(["ISO3","Country"])["Production_kbpd"].mean().reset_index()
     fig = px.choropleth(map_df, locations="ISO3", color="Production_kbpd", hover_name="Country", color_continuous_scale="Viridis", title=f"Avg Production in {region}")
     fig.update_geos(center=dict(lat=0,lon=0), projection_type="natural earth")
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", config={'responsive': True})
 
 # Trend & Forecast
 st.subheader("📈 Production Trend & Forecast")
 tab1, tab2 = st.tabs(["Historical Trend", "Simple Forecast"])
 with tab1:
     fig = px.line(prod_trend, x="Date", y="Production_kbpd", color="Country", markers=False)
-    st.plotly_chart(fig, width="stretch")
-
+    st.plotly_chart(fig, width="stretch", config={'responsive': True})
 with tab2:
     if show_fc and len(selected)==1:
         st.info("🤖 Using Prophet ML Forecasting with seasonality detection")
@@ -338,8 +432,7 @@ with tab2:
                 showlegend=True
             )
             
-            st.plotly_chart(fig, width="stretch")
-            
+            st.plotly_chart(fig, width="stretch", config={'responsive': True})            
             # Show forecast metrics
             st.subheader("📊 Forecast Summary")
             col1, col2, col3 = st.columns(3)
@@ -362,8 +455,7 @@ with tab2:
                     fig_components = plot_components_plotly(model, raw_forecast)
                     fig_components = plot_components_plotly(model, raw_forecast)
                     fig_components.update_layout(title="📊 Prophet Model Components", height=800)
-                    st.plotly_chart(fig_components, width="stretch")
-                    
+                    st.plotly_chart(fig_components, width="stretch", config={'responsive': True})
                     st.markdown("""
                     **Component Interpretation:**
                     - **Trend:** Long-term direction of production (increasing/decreasing/stable)
@@ -402,7 +494,7 @@ try:
             legend=dict(x=0.1, y=1.1, orientation="h"),
             hovermode="x unified"
         )
-        st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", config={'responsive': True})
     with col2:
         st.metric("Correlation", f"{coef:.3f}")
         if abs(coef)>0.7: st.success("Strong")
