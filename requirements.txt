@@ -8,3 +8,11 @@ fpdf
 
 prophet>=1.1.5
 
+tensorflow>=2.15.0
+keras>=2.15.0
+statsmodels>=0.14.0
+scikit-learn>=1.3.0
+tensorflow>=2.15.0
+keras>=2.15.0
+statsmodels>=0.14.0
+scikit-learn>=1.3.0

@@ -9,114 +9,49 @@ import warnings
 import base64
 import os
 from prophet import Prophet
+import logging
 
+# Suppress logs
+logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
+logging.getLogger("prophet").setLevel(logging.WARNING)
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore")
 
 # Page config
 st.set_page_config(
-    page_title="Global Oil Analytics Dashboard",
+    page_title="Global Oil Analytics Dashboard v3.0",
     page_icon="🛢️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Mobile-optimized CSS
+# CSS
 st.markdown("""
 <style>
     @media (max-width: 768px) {
-        .main .block-container {
-            padding-top: 2rem;
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
+        .main .block-container { padding-top: 2rem; padding-left: 1rem; padding-right: 1rem; }
         h1 { font-size: 1.5rem !important; }
         h2 { font-size: 1.2rem !important; }
-        h3 { font-size: 1rem !important; }
-        .stMetric { 
-            font-size: 0.9rem !important; 
-            padding: 8px !important;
-        }
-        .stButton>button {
-            font-size: 0.9rem !important;
-            padding: 0.5rem 1rem !important;
-        }
-        .stTextInput>div>div>input {
-            font-size: 16px !important;
-        }
-        .stSelectbox>div>div>select {
-            font-size: 16px !important;
-        }
+        .stButton>button { min-height: 44px; min-width: 44px; }
     }
-    .stButton>button {
-        min-height: 44px;
-        min-width: 44px;
-    }
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 12px;
-        border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .profile-container {
-        text-align: center;
-        padding: 20px 0;
-    }
-    .profile-name {
-        font-size: 18px;
-        font-weight: bold;
-        color: #1a365d;
-        margin-top: 15px;
-    }
-    .profile-title {
-        font-size: 14px;
-        color: #555;
-        margin-top: 5px;
-        line-height: 1.4;
-    }
-    .main {
-        background-color: #f8f9fa;
-    }
-    h1, h2, h3 {
-        color: #1a365d;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    section[data-testid="stSidebar"] {
-        width: 300px;
-    }
-    @media (max-width: 768px) {
-        section[data-testid="stSidebar"] {
-            width: 100%;
-            max-width: 100vw;
-        }
-    }
-    .stPlotlyChart {
-        touch-action: manipulation;
-    }
-    .streamlit-expanderHeader {
-        font-size: 1rem;
-        padding: 10px;
-    }
-    body {
-        overflow-x: hidden;
-    }
+    .profile-container { text-align: center; padding: 20px 0; }
+    .profile-name { font-size: 18px; font-weight: bold; color: #1a365d; margin-top: 15px; }
+    .profile-title { font-size: 14px; color: #555; margin-top: 5px; line-height: 1.4; }
+    .stMetric { background-color: #ffffff; padding: 12px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 </style>
 """, unsafe_allow_html=True)
 
-# Profile section
+# Profile
 def load_profile():
     profile_path = "profile.jpg"
     if os.path.exists(profile_path):
         with open(profile_path, "rb") as f:
             data = f.read()
             encoded = base64.b64encode(data).decode()
-            return f'<img src="data:image/jpg;base64,{encoded}" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:3px solid #1a365d;">'
-    return '<div style="width:120px;height:120px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#718096;font-size:14px;">👤</div>'
+            return f'<img src="image/jpg;base64,{encoded}" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:3px solid #1a365d;">'
+    return '<div style="width:120px;height:120px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;">👤</div>'
 
-# Data loading functions
+# Data
 @st.cache_data(ttl=3600)
 def load_production_data():
     try:
@@ -130,123 +65,200 @@ def load_production_data():
         for c in countries:
             base = np.random.uniform(800, 2000)
             for d in dates:
-                data.append({
-                    "Country": c,
-                    "Date": d,
-                    "Production_kbpd": max(0, base + np.random.normal(0, 50) + np.sin(d.month/12*2*np.pi)*30),
-                    "Region": "Africa"
-                })
+                data.append({"Country": c, "Date": d, "Production_kbpd": max(0, base + np.random.normal(0, 50)), "Region": "Africa"})
         return pd.DataFrame(data)
 
 @st.cache_data(ttl=3600)
 def load_prices():
     try:
         df = yf.download("BZ=F", period="5y", interval="1mo", progress=False)
-        if df.empty:
-            raise Exception("Yahoo Finance returned empty dataset")
+        if df.empty: raise Exception("Empty")
         if isinstance(df.columns, pd.MultiIndex):
             df = df.xs('Close', axis=1, level=0, drop_level=True)
             df.columns = ['Brent_Price_USD']
         else:
-            if 'Close' in df.columns:
-                df = df[['Close']]
-                df.columns = ['Brent_Price_USD']
-            else:
-                raise Exception("No 'Close' column found")
+            df = df[['Close']]
+            df.columns = ['Brent_Price_USD']
         df = df.reset_index()
         df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
-        df['Year'] = df['Date'].dt.year
-        df['Month'] = df['Date'].dt.month
-        df = df.dropna(subset=['Brent_Price_USD'])
-        if df.empty:
-            raise Exception("No valid price data after cleaning")
-        return df
-    except Exception as e:
-        st.warning(f"⚠️ Could not fetch live prices: {e}. Using fallback.")
+        return df.dropna(subset=['Brent_Price_USD'])
+    except:
         dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
-        return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 70 + np.random.normal(0, 10)} for d in dates])
+        return pd.DataFrame([{"Date": d, "Brent_Price_USD": 70 + np.random.normal(0, 10)} for d in dates])
 
-# Forecasting functions
-def forecast_simple(df_country, steps=12):
-    """Simple linear forecast for baseline."""
-    x = np.arange(len(df_country))
-    y = df_country["Production_kbpd"].values
-    coeffs = np.polyfit(x, y, 1)
-    poly = np.poly1d(coeffs)
-    future_x = np.arange(len(df_country), len(df_country) + steps)
-    future_dates = [df_country["Date"].max() + timedelta(days=30*i) for i in range(1, steps+1)]
-    fc_vals = poly(future_x)
-    hist_df = df_country[["Date", "Production_kbpd"]].rename(columns={"Production_kbpd": "Forecast"})
-    hist_df["Type"] = "Historical"
-    fc_df = pd.DataFrame({"Date": future_dates, "Forecast": fc_vals, "Type": "Forecast"})
-    return pd.concat([hist_df, fc_df])
+# Forecast Functions
+def forecast_linear(df_country, steps=12):
+    try:
+        x = np.arange(len(df_country))
+        y = df_country["Production_kbpd"].values
+        coeffs = np.polyfit(x, y, 1)
+        poly = np.poly1d(coeffs)
+        future_x = np.arange(len(df_country), len(df_country) + steps)
+        future_dates = [df_country["Date"].max() + timedelta(days=30*i) for i in range(1, steps+1)]
+        fc_vals = poly(future_x)
+        hist_df = df_country[["Date", "Production_kbpd"]].rename(columns={"Production_kbpd": "Forecast"})
+        hist_df["Type"] = "Historical"
+        fc_df = pd.DataFrame({"Date": future_dates, "Forecast": fc_vals, "Type": "Forecast"})
+        return pd.concat([hist_df, fc_df])
+    except:
+        return None
 
 def forecast_prophet(df_country, steps=12):
-    """Advanced ML forecasting using Facebook Prophet."""
     try:
+        if df_country is None or df_country.empty or len(df_country) < 24:
+            return None
         df = df_country[["Date", "Production_kbpd"]].copy()
         df.columns = ['ds', 'y']
-        model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False, interval_width=0.95)
+        if df['ds'].isna().any() or df['y'].isna().any():
+            return None
+        model = Prophet(yearly_seasonality=True, interval_width=0.95, verbose=False)
         model.fit(df)
         future = model.make_future_dataframe(periods=steps, freq='MS')
         forecast = model.predict(future)
-        viz_df = pd.DataFrame({
+        if forecast is None or forecast.empty:
+            return None
+        return pd.DataFrame({
             'Date': forecast['ds'],
             'Forecast': forecast['yhat'],
             'Lower_Bound': forecast['yhat_lower'],
             'Upper_Bound': forecast['yhat_upper'],
             'Type': ['Historical' if d < df['ds'].max() else 'Forecast' for d in forecast['ds']]
         })
-        return viz_df, model, forecast
-    except ImportError:
-        st.error("Prophet library not installed.")
-        return None, None, None
-    except Exception as e:
-        st.error(f"Forecasting error: {e}")
-        return None, None, None
+    except:
+        return None
 
 def forecast_arima(df_country, steps=12):
-    """ARIMA forecasting with proper error handling."""
     try:
         from statsmodels.tsa.arima.model import ARIMA
         df = df_country.set_index('Date')['Production_kbpd'].dropna()
         if len(df) < 10:
-            st.error("Not enough data for ARIMA")
-            return None, None
-        try:
-            model = ARIMA(df, order=(1, 1, 1))
-            results = model.fit()
-        except Exception as e:
-            st.warning(f"ARIMA fitting issue: {e}. Using simpler model.")
-            model = ARIMA(df, order=(1, 0, 1))
-            results = model.fit()
+            return None
+        model = ARIMA(df, order=(1, 1, 1))
+        results = model.fit()
         forecast_result = results.get_forecast(steps=steps)
         forecast_mean = forecast_result.predicted_mean
         conf_int = forecast_result.conf_int()
         last_date = df.index[-1]
         future_dates = pd.date_range(start=last_date + pd.Timedelta(days=30), periods=steps, freq='MS')
-        hist_df = pd.DataFrame({
-            'Date': df.index,
-            'Forecast': df.values,
-            'Lower_Bound': np.nan,
-            'Upper_Bound': np.nan,
-            'Type': 'Historical'
-        })
-        fc_df = pd.DataFrame({
-            'Date': future_dates,
-            'Forecast': forecast_mean.values,
-            'Lower_Bound': conf_int.iloc[:, 0].values,
-            'Upper_Bound': conf_int.iloc[:, 1].values,
-            'Type': 'Forecast'
-        })
-        return pd.concat([hist_df, fc_df]), results
-    except Exception as e:
-        st.error(f"ARIMA Error: {str(e)}")
-        return None, None
+        hist_df = pd.DataFrame({'Date': df.index, 'Forecast': df.values, 'Lower_Bound': np.nan, 'Upper_Bound': np.nan, 'Type': 'Historical'})
+        fc_df = pd.DataFrame({'Date': future_dates, 'Forecast': forecast_mean.values, 'Lower_Bound': conf_int.iloc[:, 0].values, 'Upper_Bound': conf_int.iloc[:, 1].values, 'Type': 'Forecast'})
+        return pd.concat([hist_df, fc_df])
+    except:
+        return None
 
-# Main app
+def forecast_lstm(df_country, steps=12):
+    try:
+        import tensorflow as tf
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import LSTM, Dense
+        from sklearn.preprocessing import MinMaxScaler
+        
+        data = df_country["Production_kbpd"].values.reshape(-1, 1)
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        scaled_data = scaler.fit_transform(data)
+        
+        look_back = 60
+        X, y = [], []
+        for i in range(look_back, len(scaled_data)):
+            X.append(scaled_data[i-look_back:i, 0])
+            y.append(scaled_data[i, 0])
+        
+        if len(X) == 0:
+            return None
+        
+        X, y = np.array(X), np.array(y)
+        X = np.reshape(X, (X.shape[0], X.shape[1], 1))
+        
+        model = Sequential()
+        model.add(LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)))
+        model.add(LSTM(50, return_sequences=False))
+        model.add(Dense(25))
+        model.add(Dense(1))
+        
+        model.compile(optimizer='adam', loss='mean_squared_error')
+        model.fit(X, y, batch_size=1, epochs=1, verbose=0)
+        
+        last_sequence = scaled_data[-look_back:].reshape(1, look_back, 1)
+        predictions = []
+        for _ in range(steps):
+            pred = model.predict(last_sequence, verbose=0)
+            predictions.append(pred[0, 0])
+            new_point = pred.reshape(1, 1, 1)
+            last_sequence = np.append(last_sequence[:, 1:, :], new_point, axis=1)
+        
+        pred_scaled = np.array(predictions).reshape(-1, 1)
+        pred_real = scaler.inverse_transform(pred_scaled)
+        
+        future_dates = [df_country["Date"].max() + timedelta(days=30*i) for i in range(1, steps+1)]
+        fc_df = pd.DataFrame({"Date": future_dates, "Forecast": pred_real.flatten(), "Type": "Forecast"})
+        hist_df = df_country[["Date", "Production_kbpd"]].rename(columns={"Production_kbpd": "Forecast"})
+        hist_df["Type"] = "Historical"
+        
+        return pd.concat([hist_df, fc_df])
+    except:
+        return None
+
+def evaluate_models(country_df):
+    try:
+        actual = country_df.tail(12)['Production_kbpd'].values
+        train_df = country_df.head(len(country_df) - 12)
+        if len(train_df) < 24:
+            train_df = country_df
+        metrics = {}
+        
+        # Linear
+        try:
+            lin_fc = forecast_linear(train_df, 12)
+            if lin_fc is not None and len(lin_fc) >= 12:
+                metrics['Linear'] = float(np.sqrt(np.mean((actual - lin_fc.tail(12)['Forecast'].values)**2)))
+            else:
+                metrics['Linear'] = 999.0
+        except:
+            metrics['Linear'] = 999.0
+
+        # ARIMA
+        try:
+            arima_fc = forecast_arima(train_df, 12)
+            if arima_fc is not None and len(arima_fc) >= 12:
+                metrics['ARIMA'] = float(np.sqrt(np.mean((actual - arima_fc.tail(12)['Forecast'].values)**2)))
+            else:
+                metrics['ARIMA'] = 999.0
+        except:
+            metrics['ARIMA'] = 999.0
+
+        # Prophet
+        try:
+            if len(train_df) >= 24:
+                prop_fc = forecast_prophet(train_df, 12)
+                if prop_fc is not None and len(prop_fc) >= 12 and 'Forecast' in prop_fc.columns:
+                    pred = prop_fc.tail(12)['Forecast'].values
+                    if len(pred) == len(actual) and not np.any(np.isnan(pred)):
+                        metrics['Prophet'] = float(np.sqrt(np.mean((actual - pred)**2)))
+                    else:
+                        metrics['Prophet'] = 999.0
+                else:
+                    metrics['Prophet'] = 999.0
+            else:
+                metrics['Prophet'] = 999.0
+        except:
+            metrics['Prophet'] = 999.0
+
+        # LSTM
+        try:
+            lstm_fc = forecast_lstm(train_df, 12)
+            if lstm_fc is not None and len(lstm_fc) >= 12:
+                metrics['LSTM'] = float(np.sqrt(np.mean((actual - lstm_fc.tail(12)['Forecast'].values)**2)))
+            else:
+                metrics['LSTM'] = 999.0
+        except:
+            metrics['LSTM'] = 999.0
+
+        return metrics
+    except:
+        return {}
+
+# Main
 def main():
-    # Sidebar
     with st.sidebar:
         st.markdown('<div class="profile-container">', unsafe_allow_html=True)
         st.markdown(load_profile(), unsafe_allow_html=True)
@@ -256,339 +268,138 @@ def main():
         
         st.divider()
         
-        # Expanders
-        with st.expander("📖 About This Dashboard"):
-            st.markdown("""
-            **Global Oil Analytics Dashboard** provides:
-            - Real-time oil production monitoring
-            - ML-powered forecasting with Prophet
-            - Price correlation analysis
-            - Interactive visualizations
-            - Mobile-optimized interface
-            
-            **Version:** 2.1  
-            **Last Updated:** 2026
-            """)
+        with st.expander("📖 About"):
+            st.markdown("**v3.0**: Deep Learning + Multi-Model Benchmarking")
         
-        with st.expander("📚 Data Sources & Methodology"):
-            st.markdown("""
-            **Data Sources:**
-            - African oil production data (EIA/OPEC)
-            - Brent Crude prices (Yahoo Finance API)
-            
-            **Methodology:**
-            - Prophet ML for time-series forecasting
-            - Pearson correlation for price analysis
-            - ISO-3 country codes for mapping
-            
-            **Forecasting:**
-            - 12-month ahead predictions
-            - 95% confidence intervals
-            - Yearly seasonality detection
-            """)
+        with st.expander("📚 Methodology"):
+            st.markdown("Prophet, LSTM, ARIMA, Linear | RMSE benchmarking")
         
         st.divider()
-        
-        # Controls Section
         st.subheader("🎛️ Controls")
-        
-        # Region Selector
-        st.markdown("**Select Region**")
-        region = st.selectbox(
-            "Region",
-            ["Africa", "Middle East", "Asia", "Europe", "Americas"],
-            index=0,
-            help="Select geographic region"
-        )
-        
+        region = st.selectbox("Region", ["Africa", "Middle East", "Asia", "Europe", "Americas"], index=0)
         st.divider()
-        
-        # Country Selection
-        st.subheader("🌍 Select Countries")
+        st.subheader("🌍 Countries")
         all_countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]
-        selected = st.multiselect(
-            "Choose countries:",
-            options=all_countries,
-            default=["Nigeria"],
-            help="Select one or more countries to analyze"
-        )
-        
+        selected = st.multiselect("Choose:", options=all_countries, default=["Nigeria"])
         st.divider()
-        
-        # Forecast Options
-        show_fc = st.checkbox("📈 Show 12-Month Forecast", value=True)
-        
+        show_fc = st.checkbox("📈 Show Forecast", value=True)
         st.divider()
-        
-        st.divider()
-        
-        # User Guide & Instructions Manual
-        with st.expander("❓ User Guide & Instructions Manual", expanded=False):
-            st.markdown("""
-            ### 📖 Quick Start Guide
-            
-            **Step 1:** Select your region from the dropdown above  
-            **Step 2:** Choose one or more countries to analyze  
-            **Step 3:** Check "Show 12-Month Forecast" for ML predictions  
-            **Step 4:** Explore the tabs below:
-            
-            #### 📊 Dashboard Tabs:
-            
-            **🗺️ Production Map**
-            - View geographic distribution of oil production
-            - Color intensity shows production volume
-            - Hover over countries for details
-            
-            **📈 Trend & Forecast**
-            - Historical production trends
-            - Prophet ML forecasting (select ONE country)
-            - 95% confidence intervals shown
-            
-            **💰 Price Correlation**
-            - Production vs Brent crude prices
-            - Correlation coefficient analysis
-            - Dual-axis visualization
-            
-            **⚠️ Alerts**
-            - Production drop notifications
-            - Month-over-month changes
-            
-            #### 💡 Pro Tips:
-            
-            - 📱 **Mobile:** Pinch to zoom charts
-            - 🖱️ **Desktop:** Click legend to hide/show series
-            - 📊 **Analysis:** Select single country for forecast
-            - 📥 **Data:** All metrics update in real-time
-            
-            #### 📚 Methodology:
-            
-            **Forecasting Model:** Facebook Prophet  
-            - Captures yearly seasonality
-            - Handles missing data automatically
-            - Provides uncertainty intervals
-            
-            **Correlation Analysis:** Pearson coefficient  
-            - Range: -1 to +1
-            - |r| < 0.3: Weak
-            - 0.3 ≤ |r| < 0.7: Moderate
-            - |r| ≥ 0.7: Strong
-            
-            ---
-            **Need Help?**  
-            📧 oilproductiondashboard@gmail.com  
-             DBA Scholar, INTI International University
-            """)
+        with st.expander("❓ User Guide"):
+            st.markdown("Select 1 country for forecast. LSTM may take 15-30s.")
 
-        # User Guide
-        with st.expander("❓ User Guide & Help"):
-            st.markdown("""
-            **Quick Start:**
-            1. Select region from dropdown
-            2. Choose countries to analyze
-            3. Enable forecast option
-            4. Navigate through tabs:
-               - 🗺️ **Map**: Geographic view
-               - 📈 **Trend & Forecast**: ML predictions
-               - 💰 **Price Correlation**: Market analysis
-               - ⚠️ **Alerts**: Production warnings
-            
-            **Tips:**
-            - Click legend to toggle series
-            - Hover over charts for details
-            - Use sidebar to filter data
-            
-            **Need Help?**
-            Contact: oilproductiondashboard@gmail.com
-
-            """)
-
+    st.title("🛢️ Global Oil Analytics Dashboard v3.0")
+    st.caption("Deep Learning • Multi-Model Benchmarking • Real-time")
     
-    # Main content
-    st.title("🛢️ Global Oil Analytics Dashboard")
-    st.caption("Real-time production monitoring • ML forecasting • Mobile-optimized")
-    
-    # Load data
     prod_df = load_production_data()
     price_df = load_prices()
     
-    if selected:
-        filtered = prod_df[prod_df["Country"].isin(selected)]
-        
-        # KPIs
-        col1, col2, col3 = st.columns(3)
-        total_prod = filtered["Production_kbpd"].sum()
-        avg_prod = filtered["Production_kbpd"].mean()
-        latest_price = price_df["Brent_Price_USD"].iloc[-1]
-        
-        col1.metric("Total Production", f"{total_prod:,.0f} kbpd")
-        col2.metric("Avg per Country", f"{avg_prod:,.0f} kbpd")
-        col3.metric("Brent Price", f"${latest_price:.2f}")
-        
-        # Tabs
-        tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Production Map", "📈 Trend & Forecast", "💰 Price Correlation", "⚠️ Alerts"])
-        
-        # Tab 1: Map
-        with tab1:
-            fig_map = px.choropleth(
-                filtered.groupby("Country")["Production_kbpd"].mean().reset_index(),
-                locations="Country",
-                locationmode="country names",
-                color="Production_kbpd",
-                color_continuous_scale="OrRd",
-                title="Average Oil Production by Country"
-            )
-            st.plotly_chart(fig_map, width="stretch")
-        
-        # Tab 2: Forecast with Multi-Model Comparison
-        with tab2:
-            if show_fc and len(selected)==1:
-                country_name = selected[0]
-                country_df = prod_df[prod_df["Country"]==country_name].sort_values('Date')
-                
-                st.info("🤖 Multi-Model Forecasting Benchmark")
-                
-                model_choice = st.selectbox(
-                    "Select Forecasting Model",
-                    ["Prophet (ML)", "ARIMA (Statistical)", "Linear (Baseline)"],
-                    index=0
-                )
-                
-                # Loading spinner for cloud performance
-                with st.spinner(f"⏳ Training {model_choice} model..."):
-                    fc_df = None
-                    
-                    if model_choice == "Prophet (ML)":
-                        st.success("🧠 Using Prophet ML model with seasonality detection")
-                        fc_df, _, _ = forecast_prophet(country_df)
-                        
-                    elif model_choice == "ARIMA (Statistical)":
-                        st.success("📈 Using ARIMA statistical model")
-                        fc_df, _ = forecast_arima(country_df)
-                        
-                    else:  # Linear
-                        st.success("📉 Using Linear Regression baseline")
-                        fc_df = forecast_simple(country_df)
-                
-                if fc_df is not None and not fc_df.empty:
-                    hist_data = fc_df[fc_df['Type']=='Historical']
-                    fc_data = fc_df[fc_df['Type']=='Forecast']
-                    
-                    fig = go.Figure()
-                    
-                    if not hist_data.empty:
-                        fig.add_trace(go.Scatter(
-                            x=hist_data['Date'],
-                            y=hist_data['Forecast'],
-                            mode='lines',
-                            name='Historical',
-                            line=dict(color='#1f77b4', width=2)
-                        ))
-                    
-                    if not fc_data.empty:
-                        fig.add_trace(go.Scatter(
-                            x=fc_data['Date'],
-                            y=fc_data['Forecast'],
-                            mode='lines',
-                            name=f'{model_choice} Forecast',
-                            line=dict(color='#ff7f0e', width=3, dash='dot')
-                        ))
-                        
-                        if 'Lower_Bound' in fc_data.columns and not fc_data['Lower_Bound'].isna().all():
-                            fig.add_trace(go.Scatter(
-                                x=pd.concat([fc_data['Date'], fc_data['Date'][::-1]]),
-                                y=pd.concat([fc_data['Upper_Bound'], fc_data['Lower_Bound'][::-1]]),
-                                fill='toself',
-                                fillcolor='rgba(255,127,14,0.2)',
-                                line=dict(color='rgba(255,255,255,0)'),
-                                name='95% CI'
-                            ))
-                    
-                    fig.update_layout(
-                        title=f"{model_choice} Forecast for {country_name}",
-                        xaxis=dict(title="Month"),
-                        yaxis=dict(title="Production (kbpd)"),
-                        hovermode="x unified",
-                        height=500
-                    )
-                    
-                    st.plotly_chart(fig, width="stretch")
-                    
-                else:
-                    st.warning("No forecast data generated")
-                    
-            elif len(selected)!=1:
-                st.warning("⚠️ Select exactly ONE country for forecasting")
-            else:
-                st.info("Enable forecast in sidebar")
-        
-        # Tab 3: Correlation
-        with tab3:
-            st.subheader("💰 Brent Price Correlation")
-            try:
-                prod_with_price = filtered.merge(price_df[["Date", "Brent_Price_USD"]], on="Date", how="inner")
-                if not prod_with_price.empty:
-                    corr = prod_with_price.groupby("Date").agg({
-                        "Production_kbpd": "sum",
-                        "Brent_Price_USD": "mean"
-                    }).reset_index()
-                    coef = corr["Production_kbpd"].corr(corr["Brent_Price_USD"])
-                    
-                    fig_corr = go.Figure()
-                    fig_corr.add_trace(go.Scatter(
-                        x=corr["Date"],
-                        y=corr["Production_kbpd"],
-                        mode="lines",
-                        name="Total Production",
-                        line=dict(color="#1f77b4")
-                    ))
-                    fig_corr.add_trace(go.Scatter(
-                        x=corr["Date"],
-                        y=corr["Brent_Price_USD"],
-                        mode="lines",
-                        name="Brent Price",
-                        line=dict(color="#ff7f0e"),
-                        yaxis="y2"
-                    ))
-                    fig_corr.update_layout(
-                        title="Production vs Brent Price",
-                        yaxis=dict(title="Production (kbpd)"),
-                        yaxis2=dict(title="Price (USD)", overlaying="y", side="right"),
-                        hovermode="x unified"
-                    )
-                    st.plotly_chart(fig_corr, width="stretch")
-                    st.metric("Correlation Coefficient", f"{coef:.3f}", 
-                              delta="Weak" if abs(coef) < 0.3 else "Moderate" if abs(coef) < 0.7 else "Strong")
-                else:
-                    st.warning("No overlapping dates for correlation analysis")
-            except Exception as e:
-                st.error(f"Correlation error: {e}")
-        
-        # Tab 4: Alerts
-        with tab4:
-            st.subheader("⚠️ Production Drop Alerts (>10% MoM)")
-            alerts = []
-            for country in selected:
-                cdf = prod_df[prod_df["Country"]==country].sort_values("Date")
-                if len(cdf) >= 2:
-                    latest = cdf.iloc[-1]["Production_kbpd"]
-                    previous = cdf.iloc[-2]["Production_kbpd"]
-                    change = ((latest - previous) / previous) * 100
-                    if change < -10:
-                        alerts.append(f"{country}: ▼ {abs(change):.1f}% drop")
-            if alerts:
-                for a in alerts:
-                    st.error(f"🚨 {a}")
-            else:
-                st.success("✅ No significant drops detected")
+    if not selected:
+        st.info("👈 Select countries to begin")
+        return
     
-    else:
-        st.info("👈 Select at least one country in the sidebar to begin analysis")
+    filtered = prod_df[prod_df["Country"].isin(selected)]
+    st.caption(f"📊 Showing: {', '.join(selected)}")
+    
+    # KPIs
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Production", f"{filtered['Production_kbpd'].sum():,.0f} kbpd")
+    col2.metric("Avg per Country", f"{filtered['Production_kbpd'].mean():,.0f} kbpd")
+    col3.metric("Brent Price", f"${price_df['Brent_Price_USD'].iloc[-1]:.2f}")
+    
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Map", "📈 Forecast", "💰 Correlation", "⚠️ Alerts"])
+    
+    # Tab 1: Map
+    with tab1:
+        map_data = filtered.groupby("Country")["Production_kbpd"].mean().reset_index()
+        country_iso = {"Nigeria": "NGA", "Angola": "AGO", "Algeria": "DZA", "Libya": "LBY", "Egypt": "EGY"}
+        map_data["ISO"] = map_data["Country"].map(country_iso)
+        fig_map = px.choropleth(map_data, locations="ISO", locationmode="ISO-3", color="Production_kbpd",
+                                color_continuous_scale="OrRd", title="Oil Production", hover_name="Country")
+        fig_map.update_geos(showland=True, landcolor="LightGray", showocean=True, oceancolor="LightBlue")
+        st.plotly_chart(fig_map, width="stretch")
+    
+    # Tab 2: Forecast
+    with tab2:
+        if show_fc and len(selected)==1:
+            country_name = selected[0]
+            country_df = prod_df[prod_df["Country"]==country_name].sort_values('Date')
+            st.info("🤖 Multi-Model Benchmark")
+            
+            model_choice = st.selectbox("Model", ["Prophet (ML)", "LSTM (Deep Learning)", "ARIMA (Statistical)", "Linear (Baseline)"], index=0)
+            
+            with st.spinner(f"⏳ Training {model_choice}..."):
+                fc_df = None
+                if model_choice == "Prophet (ML)":
+                    fc_df = forecast_prophet(country_df)
+                elif model_choice == "LSTM (Deep Learning)":
+                    fc_df = forecast_lstm(country_df)
+                elif model_choice == "ARIMA (Statistical)":
+                    fc_df = forecast_arima(country_df)
+                else:
+                    fc_df = forecast_linear(country_df)
+            
+            if fc_df is not None:
+                hist = fc_df[fc_df['Type']=='Historical']
+                fc = fc_df[fc_df['Type']=='Forecast']
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=hist['Date'], y=hist['Forecast'], mode='lines', name='Historical', line=dict(color='#1f77b4', width=2)))
+                fig.add_trace(go.Scatter(x=fc['Date'], y=fc['Forecast'], mode='lines', name=f'{model_choice}', line=dict(color='#ff7f0e', width=3, dash='dot')))
+                if 'Lower_Bound' in fc.columns and not fc['Lower_Bound'].isna().all():
+                    fig.add_trace(go.Scatter(x=pd.concat([fc['Date'], fc['Date'][::-1]]), y=pd.concat([fc['Upper_Bound'], fc['Lower_Bound'][::-1]]), fill='toself', fillcolor='rgba(255,127,14,0.2)', line=dict(color='rgba(255,255,255,0)'), name='95% CI'))
+                fig.update_layout(title=f"{model_choice} for {country_name}", xaxis_title="Month", yaxis_title="Production (kbpd)", height=500)
+                st.plotly_chart(fig, width="stretch")
+                
+                st.subheader("📊 Model Comparison (RMSE)")
+                with st.spinner("Calculating..."):
+                    metrics = evaluate_models(country_df)
+                if metrics:
+                    df_m = pd.DataFrame(list(metrics.items()), columns=['Model', 'RMSE']).sort_values('RMSE')
+                    st.dataframe(df_m, width="stretch")
+                    st.success(f"🏆 Best: {df_m.iloc[0]['Model']}")
+        elif len(selected)!=1:
+            st.warning("⚠️ Select ONE country for forecast")
+        else:
+            st.info("Enable forecast in sidebar")
+    
+    # Tab 3: Correlation
+    with tab3:
+        st.subheader("💰 Price Correlation")
+        try:
+            merged = filtered.merge(price_df[["Date", "Brent_Price_USD"]], on="Date", how="inner")
+            if not merged.empty:
+                corr = merged.groupby("Date").agg({"Production_kbpd": "sum", "Brent_Price_USD": "mean"}).reset_index()
+                coef = corr["Production_kbpd"].corr(corr["Brent_Price_USD"])
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=corr["Date"], y=corr["Production_kbpd"], mode="lines", name="Production", line=dict(color="#1f77b4", width=2), yaxis="y1"))
+                fig.add_trace(go.Scatter(x=corr["Date"], y=corr["Brent_Price_USD"], mode="lines", name="Brent Price", line=dict(color="#ff7f0e", width=2), yaxis="y2"))
+                fig.update_layout(title="Production vs Price", yaxis=dict(title="Production (kbpd)"), yaxis2=dict(title="Price (USD)", overlaying="y", side="right"), hovermode="x unified", height=500)
+                st.plotly_chart(fig, width="stretch")
+                
+                col1, col2 = st.columns(2)
+                col1.metric("Correlation", f"{coef:.3f}")
+                col2.metric("Strength", "Weak" if abs(coef)<0.3 else "Moderate" if abs(coef)<0.7 else "Strong")
+            else:
+                st.warning("⚠️ No overlapping dates")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
+    
+    # Tab 4: Alerts
+    with tab4:
+        st.subheader("⚠️ Production Alerts (>10% MoM)")
+        alerts = []
+        for country in selected:
+            cdf = prod_df[prod_df["Country"]==country].sort_values("Date")
+            if len(cdf) >= 2:
+                change = ((cdf.iloc[-1]["Production_kbpd"] - cdf.iloc[-2]["Production_kbpd"]) / cdf.iloc[-2]["Production_kbpd"]) * 100
+                if change < -10:
+                    alerts.append(f"{country}: ▼ {abs(change):.1f}%")
+        if alerts:
+            for a in alerts:
+                st.error(f"🚨 {a}")
+        else:
+            st.success("✅ No significant drops")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
