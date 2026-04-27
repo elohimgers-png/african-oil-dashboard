@@ -320,6 +320,65 @@ def main():
         
         st.divider()
         
+        st.divider()
+        
+        # User Guide & Instructions Manual
+        with st.expander("❓ User Guide & Instructions Manual", expanded=False):
+            st.markdown("""
+            ### 📖 Quick Start Guide
+            
+            **Step 1:** Select your region from the dropdown above  
+            **Step 2:** Choose one or more countries to analyze  
+            **Step 3:** Check "Show 12-Month Forecast" for ML predictions  
+            **Step 4:** Explore the tabs below:
+            
+            #### 📊 Dashboard Tabs:
+            
+            **🗺️ Production Map**
+            - View geographic distribution of oil production
+            - Color intensity shows production volume
+            - Hover over countries for details
+            
+            **📈 Trend & Forecast**
+            - Historical production trends
+            - Prophet ML forecasting (select ONE country)
+            - 95% confidence intervals shown
+            
+            **💰 Price Correlation**
+            - Production vs Brent crude prices
+            - Correlation coefficient analysis
+            - Dual-axis visualization
+            
+            **⚠️ Alerts**
+            - Production drop notifications
+            - Month-over-month changes
+            
+            #### 💡 Pro Tips:
+            
+            - 📱 **Mobile:** Pinch to zoom charts
+            - 🖱️ **Desktop:** Click legend to hide/show series
+            - 📊 **Analysis:** Select single country for forecast
+            - 📥 **Data:** All metrics update in real-time
+            
+            #### 📚 Methodology:
+            
+            **Forecasting Model:** Facebook Prophet  
+            - Captures yearly seasonality
+            - Handles missing data automatically
+            - Provides uncertainty intervals
+            
+            **Correlation Analysis:** Pearson coefficient  
+            - Range: -1 to +1
+            - |r| < 0.3: Weak
+            - 0.3 ≤ |r| < 0.7: Moderate
+            - |r| ≥ 0.7: Strong
+            
+            ---
+            **Need Help?**  
+            📧 oilproductiondashboard@gmail.com  
+             DBA Scholar, INTI International University
+            """)
+
         # User Guide
         with st.expander("❓ User Guide & Help"):
             st.markdown("""
