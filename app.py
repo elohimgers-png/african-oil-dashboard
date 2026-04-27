@@ -205,45 +205,6 @@ def forecast_prophet(df_country, steps=12):
         st.error(f"Forecasting error: {e}")
         return None, None, None
 
-def forecast_arima(df_country, steps=12):
-    """ARIMA forecasting with proper error handling."""
-    try:
-        from statsmodels.tsa.arima.model import ARIMA
-        df = df_country.set_index('Date')['Production_kbpd'].dropna()
-        if len(df) < 10:
-            st.error("Not enough data for ARIMA")
-            return None, None
-        try:
-            model = ARIMA(df, order=(1, 1, 1))
-            results = model.fit()
-        except Exception as e:
-            st.warning(f"ARIMA fitting issue: {e}. Using simpler model.")
-            model = ARIMA(df, order=(1, 0, 1))
-            results = model.fit()
-        forecast_result = results.get_forecast(steps=steps)
-        forecast_mean = forecast_result.predicted_mean
-        conf_int = forecast_result.conf_int()
-        last_date = df.index[-1]
-        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=30), periods=steps, freq='MS')
-        hist_df = pd.DataFrame({
-            'Date': df.index,
-            'Forecast': df.values,
-            'Lower_Bound': np.nan,
-            'Upper_Bound': np.nan,
-            'Type': 'Historical'
-        })
-        fc_df = pd.DataFrame({
-            'Date': future_dates,
-            'Forecast': forecast_mean.values,
-            'Lower_Bound': conf_int.iloc[:, 0].values,
-            'Upper_Bound': conf_int.iloc[:, 1].values,
-            'Type': 'Forecast'
-        })
-        return pd.concat([hist_df, fc_df]), results
-    except Exception as e:
-        st.error(f"ARIMA Error: {str(e)}")
-        return None, None
-
 # Main app
 def main():
     # Sidebar
@@ -299,22 +260,29 @@ def main():
         col2.metric("Avg per Country", f"{avg_prod:,.0f} kbpd")
         col3.metric("Brent Price", f"${latest_price:.2f}")
         
-        # Tabs
+        # ✅ CREATE TABS HERE (BEFORE using them!)
         tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Production Map", "📈 Trend & Forecast", "💰 Price Correlation", "⚠️ Alerts"])
         
         # Tab 1: Map
         with tab1:
+            st.subheader("🗺️ Production Map")
+            map_data = filtered.groupby("Country")["Production_kbpd"].mean().reset_index()
+            country_iso = {"Nigeria": "NGA", "Angola": "AGO", "Algeria": "DZA", "Libya": "LBY", "Egypt": "EGY"}
+            map_data["ISO"] = map_data["Country"].map(country_iso)
+            
             fig_map = px.choropleth(
-                filtered.groupby("Country")["Production_kbpd"].mean().reset_index(),
-                locations="Country",
-                locationmode="country names",
+                map_data,
+                locations="ISO",
+                locationmode="ISO-3",
                 color="Production_kbpd",
                 color_continuous_scale="OrRd",
-                title="Average Oil Production by Country"
+                title="Average Oil Production by Country (kbpd)",
+                hover_name="Country"
             )
+            fig_map.update_geos(showland=True, landcolor="LightGray", showocean=True, oceancolor="LightBlue")
             st.plotly_chart(fig_map, width="stretch")
         
-        # Tab 2: Forecast with Multi-Model Comparison
+        # Tab 2: Forecast
         with tab2:
             if show_fc and len(selected)==1:
                 country_name = selected[0]
@@ -324,24 +292,17 @@ def main():
                 
                 model_choice = st.selectbox(
                     "Select Forecasting Model",
-                    ["Prophet (ML)", "ARIMA (Statistical)", "Linear (Baseline)"],
+                    ["Prophet (ML)", "Linear (Baseline)"],
                     index=0
                 )
                 
-                # Loading spinner for cloud performance
                 with st.spinner(f"⏳ Training {model_choice} model..."):
                     fc_df = None
-                    
                     if model_choice == "Prophet (ML)":
-                        st.success("🧠 Using Prophet ML model with seasonality detection")
+                        st.success("🧠 Using Prophet ML model")
                         fc_df, _, _ = forecast_prophet(country_df)
-                        
-                    elif model_choice == "ARIMA (Statistical)":
-                        st.success("📈 Using ARIMA statistical model")
-                        fc_df, _ = forecast_arima(country_df)
-                        
-                    else:  # Linear
-                        st.success("📉 Using Linear Regression baseline")
+                    else:
+                        st.success("📉 Using Linear Regression")
                         fc_df = forecast_simple(country_df)
                 
                 if fc_df is not None and not fc_df.empty:
@@ -349,48 +310,16 @@ def main():
                     fc_data = fc_df[fc_df['Type']=='Forecast']
                     
                     fig = go.Figure()
-                    
                     if not hist_data.empty:
-                        fig.add_trace(go.Scatter(
-                            x=hist_data['Date'],
-                            y=hist_data['Forecast'],
-                            mode='lines',
-                            name='Historical',
-                            line=dict(color='#1f77b4', width=2)
-                        ))
-                    
+                        fig.add_trace(go.Scatter(x=hist_data['Date'], y=hist_data['Forecast'], mode='lines', name='Historical', line=dict(color='#1f77b4', width=2)))
                     if not fc_data.empty:
-                        fig.add_trace(go.Scatter(
-                            x=fc_data['Date'],
-                            y=fc_data['Forecast'],
-                            mode='lines',
-                            name=f'{model_choice} Forecast',
-                            line=dict(color='#ff7f0e', width=3, dash='dot')
-                        ))
-                        
+                        fig.add_trace(go.Scatter(x=fc_data['Date'], y=fc_data['Forecast'], mode='lines', name=f'{model_choice} Forecast', line=dict(color='#ff7f0e', width=3, dash='dot')))
                         if 'Lower_Bound' in fc_data.columns and not fc_data['Lower_Bound'].isna().all():
-                            fig.add_trace(go.Scatter(
-                                x=pd.concat([fc_data['Date'], fc_data['Date'][::-1]]),
-                                y=pd.concat([fc_data['Upper_Bound'], fc_data['Lower_Bound'][::-1]]),
-                                fill='toself',
-                                fillcolor='rgba(255,127,14,0.2)',
-                                line=dict(color='rgba(255,255,255,0)'),
-                                name='95% CI'
-                            ))
-                    
-                    fig.update_layout(
-                        title=f"{model_choice} Forecast for {country_name}",
-                        xaxis=dict(title="Month"),
-                        yaxis=dict(title="Production (kbpd)"),
-                        hovermode="x unified",
-                        height=500
-                    )
-                    
+                            fig.add_trace(go.Scatter(x=pd.concat([fc_data['Date'], fc_data['Date'][::-1]]), y=pd.concat([fc_data['Upper_Bound'], fc_data['Lower_Bound'][::-1]]), fill='toself', fillcolor='rgba(255,127,14,0.2)', line=dict(color='rgba(255,255,255,0)'), name='95% CI'))
+                    fig.update_layout(title=f"{model_choice} Forecast for {country_name}", xaxis=dict(title="Month"), yaxis=dict(title="Production (kbpd)"), hovermode="x unified", height=500)
                     st.plotly_chart(fig, width="stretch")
-                    
                 else:
                     st.warning("No forecast data generated")
-                    
             elif len(selected)!=1:
                 st.warning("⚠️ Select exactly ONE country for forecasting")
             else:
@@ -402,37 +331,14 @@ def main():
             try:
                 prod_with_price = filtered.merge(price_df[["Date", "Brent_Price_USD"]], on="Date", how="inner")
                 if not prod_with_price.empty:
-                    corr = prod_with_price.groupby("Date").agg({
-                        "Production_kbpd": "sum",
-                        "Brent_Price_USD": "mean"
-                    }).reset_index()
+                    corr = prod_with_price.groupby("Date").agg({"Production_kbpd": "sum", "Brent_Price_USD": "mean"}).reset_index()
                     coef = corr["Production_kbpd"].corr(corr["Brent_Price_USD"])
-                    
                     fig_corr = go.Figure()
-                    fig_corr.add_trace(go.Scatter(
-                        x=corr["Date"],
-                        y=corr["Production_kbpd"],
-                        mode="lines",
-                        name="Total Production",
-                        line=dict(color="#1f77b4")
-                    ))
-                    fig_corr.add_trace(go.Scatter(
-                        x=corr["Date"],
-                        y=corr["Brent_Price_USD"],
-                        mode="lines",
-                        name="Brent Price",
-                        line=dict(color="#ff7f0e"),
-                        yaxis="y2"
-                    ))
-                    fig_corr.update_layout(
-                        title="Production vs Brent Price",
-                        yaxis=dict(title="Production (kbpd)"),
-                        yaxis2=dict(title="Price (USD)", overlaying="y", side="right"),
-                        hovermode="x unified"
-                    )
+                    fig_corr.add_trace(go.Scatter(x=corr["Date"], y=corr["Production_kbpd"], mode="lines", name="Total Production", line=dict(color="#1f77b4")))
+                    fig_corr.add_trace(go.Scatter(x=corr["Date"], y=corr["Brent_Price_USD"], mode="lines", name="Brent Price", line=dict(color="#ff7f0e"), yaxis="y2"))
+                    fig_corr.update_layout(title="Production vs Brent Price", yaxis=dict(title="Production (kbpd)"), yaxis2=dict(title="Price (USD)", overlaying="y", side="right"), hovermode="x unified")
                     st.plotly_chart(fig_corr, width="stretch")
-                    st.metric("Correlation Coefficient", f"{coef:.3f}", 
-                              delta="Weak" if abs(coef) < 0.3 else "Moderate" if abs(coef) < 0.7 else "Strong")
+                    st.metric("Correlation Coefficient", f"{coef:.3f}", delta="Weak" if abs(coef) < 0.3 else "Moderate" if abs(coef) < 0.7 else "Strong")
                 else:
                     st.warning("No overlapping dates for correlation analysis")
             except Exception as e:
@@ -461,4 +367,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
