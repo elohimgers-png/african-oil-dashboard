@@ -287,6 +287,79 @@ def calculate_metrics(y_true, y_pred):
     return rmse, mae, mape
 
 # Main app
+
+# ================= RMSE HELPER FUNCTIONS =================
+
+def train_test_split_ts(df, steps=12):
+    train = df[:-steps].copy()
+    test = df[-steps:].copy()
+    return train, test
+
+def forecast_linear_rmse(df_country, steps=12):
+    train, test = train_test_split_ts(df_country, steps)
+    x_train = np.arange(len(train))
+    y_train = train["Production_kbpd"].values
+    coeffs = np.polyfit(x_train, y_train, 1)
+    poly = np.poly1d(coeffs)
+    x_test = np.arange(len(train), len(train) + steps)
+    y_pred = poly(x_test)
+    return np.sqrt(((test["Production_kbpd"].values - y_pred) ** 2).mean())
+
+def forecast_arima_rmse(df_country, steps=12):
+    from statsmodels.tsa.arima.model import ARIMA
+    train, test = train_test_split_ts(df_country, steps)
+    train_series = train.set_index('Date')['Production_kbpd']
+    model = ARIMA(train_series, order=(1, 1, 1))
+    results = model.fit()
+    forecast = results.get_forecast(steps=steps)
+    y_pred = forecast.predicted_mean.values
+    return np.sqrt(((test["Production_kbpd"].values - y_pred) ** 2).mean())
+
+def forecast_prophet_rmse(df_country, steps=12):
+    from prophet import Prophet
+    import logging
+    logging.getLogger("prophet").setLevel(logging.ERROR)
+    logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
+    
+    train, test = train_test_split_ts(df_country, steps)
+    df_train = train[["Date", "Production_kbpd"]].rename(columns={"Date": "ds", "Production_kbpd": "y"})
+    
+    model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False)
+    model.fit(df_train)
+    
+    future = model.make_future_dataframe(periods=steps, freq='MS')
+    forecast = model.predict(future)
+    
+    # FIX: Use position-based alignment instead of fragile .loc[]
+    y_pred = forecast.tail(steps)['yhat'].values
+    y_true = test['Production_kbpd'].values
+    
+    min_len = min(len(y_true), len(y_pred))
+    return np.sqrt(((y_true[:min_len] - y_pred[:min_len]) ** 2).mean())
+
+def compute_all_rmse(df_country, steps=12):
+    results = []
+    try:
+        results.append(("Linear", forecast_linear_rmse(df_country, steps)))
+    except Exception as e:
+        print(f"Linear RMSE Error: {e}")
+        results.append(("Linear", None))
+        
+    try:
+        results.append(("ARIMA", forecast_arima_rmse(df_country, steps)))
+    except Exception as e:
+        print(f"ARIMA RMSE Error: {e}")
+        results.append(("ARIMA", None))
+        
+    try:
+        results.append(("Prophet", forecast_prophet_rmse(df_country, steps)))
+    except Exception as e:
+        print(f"Prophet RMSE Error: {e}")
+        results.append(("Prophet", None))
+        
+    return pd.DataFrame(results, columns=["Model", "RMSE"])
+
+
 def main():
     # Sidebar
     # ================= SIDEBAR =================
@@ -522,23 +595,32 @@ def main():
                     
                     st.plotly_chart(fig, width="stretch")
                     
-                    # Model Performance Metrics
-                    st.subheader("📊 Model Performance (Last 12 Months)")
+                # Model Performance Metrics
+                st.subheader("📊 Model Performance (Last 12 Months)")
+                
+                try:
                     actual_last_12 = country_df.tail(12)['Production_kbpd'].values
                     metrics_rows = []
                     
-                    # Linear
-                    x_train = np.arange(len(country_df)-12)
-                    y_train = country_df.head(len(country_df)-12)['Production_kbpd'].values
-                    coeffs_l = np.polyfit(x_train, y_train, 1)
-                    pred_l = np.poly1d(coeffs_l)(np.arange(len(country_df)-12, len(country_df)))
-                    rmse_l = np.sqrt(np.mean((actual_last_12 - pred_l)**2))
-                    metrics_rows.append({"Model": "Linear", "RMSE": f"{rmse_l:.2f}"})
-                    
-                    # Prophet
+                    # Linear RMSE
                     try:
+                        x_train = np.arange(len(country_df)-12)
+                        y_train = country_df.head(len(country_df)-12)['Production_kbpd'].values
+                        coeffs_l = np.polyfit(x_train, y_train, 1)
+                        pred_l = np.poly1d(coeffs_l)(np.arange(len(country_df)-12, len(country_df)))
+                        rmse_l = np.sqrt(np.mean((actual_last_12 - pred_l)**2))
+                        metrics_rows.append({"Model": "Linear", "RMSE": f"{rmse_l:.2f}"})
+                    except:
+                        metrics_rows.append({"Model": "Linear", "RMSE": "N/A"})
+                    
+                    # Prophet RMSE
+                    try:
+                        import logging
+                        logging.getLogger("prophet").setLevel(logging.ERROR)
+                        logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
+                        
                         prophet_df = country_df[['Date', 'Production_kbpd']].rename(columns={'Date':'ds', 'Production_kbpd':'y'})
-                        prop_mod = Prophet(yearly_seasonality=True, verbose=0)
+                        prop_mod = Prophet(yearly_seasonality=True)
                         prop_mod.fit(prophet_df)
                         prop_fc = prop_mod.predict(prophet_df.tail(12))
                         rmse_p = np.sqrt(np.mean((actual_last_12 - prop_fc['yhat'].values)**2))
@@ -546,7 +628,7 @@ def main():
                     except:
                         metrics_rows.append({"Model": "Prophet", "RMSE": "N/A"})
                     
-                    # ARIMA
+                    # ARIMA RMSE
                     try:
                         from statsmodels.tsa.arima.model import ARIMA
                         arima_mod = ARIMA(country_df['Production_kbpd'].values[:-12], order=(1,1,1))
@@ -560,17 +642,14 @@ def main():
                     metrics_df = pd.DataFrame(metrics_rows)
                     st.dataframe(metrics_df, use_container_width=True)
                     
-                    best = metrics_df.loc[metrics_df['RMSE'].idxmin(), 'Model'] if 'N/A' not in metrics_df['RMSE'].values else "N/A"
-                    if best != "N/A":
+                    valid = metrics_df[metrics_df['RMSE'] != 'N/A']
+                    if not valid.empty:
+                        best = valid.loc[valid['RMSE'].astype(float).idxmin(), 'Model']
                         st.success(f"🏆 **Best Model:** {best}")
-                        
-                else:
-                    st.warning("No forecast data generated")
                     
-            elif len(selected)!=1:
-                st.warning("⚠️ Select exactly ONE country for forecasting")
-            else:
-                st.info("Enable forecast in sidebar")
+                except Exception as e:
+                    st.warning(f"⚠️ Could not calculate metrics: {e}")
+
         
         # Tab 3: Correlation
         with tab3:
