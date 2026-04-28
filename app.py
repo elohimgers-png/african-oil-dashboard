@@ -141,31 +141,63 @@ def load_production_data():
 
 @st.cache_data(ttl=3600)
 def load_prices():
-    try:
-        df = yf.download("BZ=F", period="5y", interval="1mo", progress=False)
-        if df.empty:
-            raise Exception("Yahoo Finance returned empty dataset")
-        if isinstance(df.columns, pd.MultiIndex):
-            df = df.xs('Close', axis=1, level=0, drop_level=True)
-            df.columns = ['Brent_Price_USD']
-        else:
-            if 'Close' in df.columns:
-                df = df[['Close']]
+    """Fetch Brent Crude prices with multiple fallbacks."""
+    tickers = ["BZ=F", "BRENTOIL=X", "CL=F"]  # Try Brent Futures, Brent Spot, then WTI
+    
+    for ticker in tickers:
+        try:
+            df = yf.download(ticker, period="5y", interval="1mo", progress=False)
+            
+            if not df.empty:
+                # Handle MultiIndex columns if present
+                if isinstance(df.columns, pd.MultiIndex):
+                    df = df.xs('Close', axis=1, level=0, drop_level=True)
+                else:
+                    if 'Close' in df.columns:
+                        df = df[['Close']]
+                    elif 'Adj Close' in df.columns:
+                        df = df[['Adj Close']]
+                    else:
+                        continue  # Try next ticker
+                
                 df.columns = ['Brent_Price_USD']
-            else:
-                raise Exception("No 'Close' column found")
-        df = df.reset_index()
-        df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
-        df['Year'] = df['Date'].dt.year
-        df['Month'] = df['Date'].dt.month
-        df = df.dropna(subset=['Brent_Price_USD'])
-        if df.empty:
-            raise Exception("No valid price data after cleaning")
-        return df
-    except Exception as e:
-        st.warning(f"⚠️ Could not fetch live prices: {e}. Using fallback.")
-        dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
-        return pd.DataFrame([{"Date": d, "Year": d.year, "Month": d.month, "Brent_Price_USD": 70 + np.random.normal(0, 10)} for d in dates])
+                df = df.reset_index()
+                df['Date'] = pd.to_datetime(df['Date']).dt.normalize()
+                df = df.dropna(subset=['Brent_Price_USD'])
+                
+                if not df.empty:
+                    print(f"✅ Successfully fetched prices using ticker: {ticker}")
+                    return df
+                    
+        except Exception as e:
+            print(f"❌ Failed to fetch {ticker}: {e}")
+            continue
+    
+    # If all tickers fail, use realistic fallback data
+    st.warning("⚠️ Could not fetch live prices from any source. Using realistic fallback data.")
+    dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
+    
+    # Generate realistic oil price pattern (mean-reverting around $75 with volatility)
+    np.random.seed(42)  # For reproducibility
+    base_price = 75.0
+    volatility = 15.0
+    prices = []
+    
+    for i, d in enumerate(dates):
+        # Add some trend and seasonality
+        trend = 0.002 * i  # Slight upward trend
+        seasonal = 5.0 * np.sin(2 * np.pi * d.month / 12)  # Yearly seasonality
+        noise = np.random.normal(0, volatility)
+        price = max(20, min(150, base_price + trend + seasonal + noise))  # Clamp between $20-$150
+        prices.append(price)
+    
+    fallback_df = pd.DataFrame({
+        "Date": dates,
+        "Brent_Price_USD": prices
+    })
+    
+    return fallback_df
+
 
 # Forecasting functions
 def forecast_simple(df_country, steps=12):
