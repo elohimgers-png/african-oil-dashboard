@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 
 # Page config
 st.set_page_config(
-    page_title="Global Oil Analytics Dashboard v2.2",
+    page_title="Global Oil Analytics Dashboard v2.3",
     page_icon="🛢️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -94,6 +94,16 @@ def generate_pdf_report(title, metrics_df):
     pdf.set_text_color(128, 128, 128)
     pdf.cell(0, 10, "Global Oil Analytics Dashboard | Gerson Japhet Fumbuka | INTI International University", ln=True, align='C')
     return pdf.output(dest='S').encode('latin1')
+
+# Chart Export Function
+def convert_fig_to_png(fig):
+    """Convert Plotly figure to PNG bytes."""
+    try:
+        img_bytes = fig.to_image(format="png", width=1200, height=600, scale=2)
+        return img_bytes
+    except Exception as e:
+        st.warning(f"⚠️ Chart export requires kaleido: pip install kaleido")
+        return None
 
 # Data loading functions
 @st.cache_data(ttl=3600)
@@ -226,15 +236,16 @@ def main():
         # About This Dashboard
         with st.expander("📖 About This Dashboard"):
             st.markdown("""
-            **Global Oil Analytics Dashboard v2.2** provides:
+            **Global Oil Analytics Dashboard v2.3** provides:
             - Real-time oil production monitoring
             - ML-powered forecasting with Prophet
             - Price correlation analysis
             - Interactive visualizations
             - Mobile-optimized interface
             - CSV/PDF export functionality
+            - **Chart download as PNG**
             
-            **Version:** 2.2  
+            **Version:** 2.3  
             **Last Updated:** April 2026
             """)
         
@@ -313,6 +324,7 @@ def main():
             - 📊 **Analysis:** Single country required for forecast
             - 📥 **Data:** All metrics update in real-time
             - 📄 **Export:** Download CSV/PDF reports
+            - 📸 **Charts:** Download high-quality PNG images
             
             ### 📚 Methodology Notes:
             
@@ -339,8 +351,8 @@ def main():
             """)
 
     # ================= MAIN CONTENT =================
-    st.title("🛢️ Global Oil Analytics Dashboard v2.2")
-    st.caption("ML forecasting • Real-time monitoring • CSV/PDF Export")
+    st.title("🛢️ Global Oil Analytics Dashboard v2.3")
+    st.caption("ML forecasting • Real-time monitoring • CSV/PDF/Chart Export")
     
     # Load data
     prod_df = load_production_data()
@@ -375,6 +387,17 @@ def main():
             hover_name="Country"
         )
         st.plotly_chart(fig_map, width="stretch")
+        
+        # Download Map as PNG
+        map_png = convert_fig_to_png(fig_map)
+        if map_png is not None:
+            st.download_button(
+                label="📸 Download Map as PNG",
+                data=map_png,
+                file_name=f"production_map_{datetime.now().strftime('%Y%m%d')}.png",
+                mime="image/png"
+            )
+        
         csv_data = filtered.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download Production CSV",
@@ -440,6 +463,16 @@ def main():
                     hovermode="x unified"
                 )
                 st.plotly_chart(fig, width="stretch")
+                
+                # Download Forecast Chart as PNG
+                forecast_png = convert_fig_to_png(fig)
+                if forecast_png is not None:
+                    st.download_button(
+                        label="📸 Download Forecast Chart as PNG",
+                        data=forecast_png,
+                        file_name=f"forecast_{country_name}_{datetime.now().strftime('%Y%m%d')}.png",
+                        mime="image/png"
+                    )
                 
                 # Metrics & PDF Export
                 st.subheader("📊 Model Performance (Last 12 Months)")
@@ -544,6 +577,16 @@ def main():
                 )
                 st.plotly_chart(fig, width="stretch")
                 
+                # Download Correlation Chart as PNG
+                corr_png = convert_fig_to_png(fig)
+                if corr_png is not None:
+                    st.download_button(
+                        label="📸 Download Correlation Chart as PNG",
+                        data=corr_png,
+                        file_name=f"correlation_chart_{datetime.now().strftime('%Y%m%d')}.png",
+                        mime="image/png"
+                    )
+                
                 col1, col2 = st.columns(2)
                 col1.metric("Correlation", f"{coef:.3f}")
                 col2.metric("Strength", "Weak" if abs(coef) < 0.3 else "Moderate" if abs(coef) < 0.7 else "Strong")
@@ -601,5 +644,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
